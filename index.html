@@ -286,21 +286,15 @@
 <strong>进入架构阶段：</strong>设计不接收真实退化标签或真实尺度的可靠性条件化证据融合；真实模糊与同骨干公平融合将作为架构验证，而不是继续延长motivation筛选。</div>
 </article>
 <article class="decision-node">
-<div class="decision-meta">STEP 17 · 当前退化协议的跨任务验证</div>
-<h3>音频补偿是否只是分类NLL校准现象？</h3>
-<p><b>实现：</b>同一3000地点与2359/313/328划分，使用DINOv3-L退化街景、完整时间轴CLAP音频和DINOv3卫星候选；分别训练球面单位向量回归与街景→遥感InfoNCE检索，验证集选择音频权重，三个随机种子并加入错配音频。</p>
-<p><b>观察：</b>球面回归在Blur-5和Blur-10降低中位误差；Blur-10由2913 km降至1972 km。跨视角检索在3/6退化条件提高Recall@1、4/6降低Top-1地理误差；Blur-10的Recall@1由6.20%升至7.32%，中位地理误差由4068 km降至2543 km，而错配音频为4953 km。</p>
-<p><b>边界：</b>回归和检索是任务专用轻量探针，尚未把FoundIR、退化训练和蒸馏全部迁移到这两种任务；不同条件的收益不均匀也不能证明由某种退化机制因果决定。</p>
-<div class="transition next"><strong>当前判决：</strong>分类、回归和检索共同说明“退化视觉下音频补偿可成为新地理锚点”是可行研究动机。下一步转入统一架构设计，让模型学习每个样本的证据可靠性，而不是继续要求所有条件都胜出。</div>
-</article>
-<article class="decision-node">
-<div class="decision-meta">STEP 18 · 跨任务视觉补救竞争对比</div>
-<h3>正确音频能否达到或超过视觉内部补救路线？</h3>
-<p><b>实现：</b>将FoundIR恢复、mixed-corruption training和Clean→Degraded特征蒸馏迁移到球面回归与街景→遥感检索；保持3000地点划分、DINOv3-L特征、任务头、训练预算与三随机种子一致，并保留退化视觉、正确音频和错配音频。</p>
-<p><b>回归结果：</b>Blur-10中位误差为音频1971.9 km、FoundIR 1982.1 km、蒸馏2615.2 km、混合退化训练2669.1 km，音频略胜FoundIR；Blur-5由蒸馏最好，28px也由蒸馏最好。</p>
-<p><b>检索结果：</b>Blur-10的Recall@1由FoundIR略胜（7.62% vs 7.32%），但音频Top-1中位地理误差更低（2542.8 vs 2765.1 km）；Blur-5的Recall@1与地理误差均由音频最好。低分辨率条件则没有统一赢家。</p>
-<p><b>严格边界：</b>mixed与distillation是任务匹配的特征级诊断，不是对应论文完整复现；音频融合仍按退化条件在验证集选择权重。因此它支持路线可行性，不是最终SOTA声明。</p>
-<div class="transition next"><strong>新的架构问题：</strong>音频和视觉补救并非互斥。最终模型应学习“视觉证据还能救回多少、声学证据新增多少”，再做样本级融合，而不是预设音频或恢复路线始终获胜。</div>
+<div class="decision-meta">STEP 17 · 跨任务最终验证（合并）</div>
+<h3>音频是真实地理证据，并能与视觉内部补救路线竞争吗？</h3>
+<div class="result-guide"><strong>先看结论：</strong>分类、回归和检索共同支持音频提供视觉内部路线无法稳定替代的外部证据；它不是所有退化和指标上的绝对赢家。</div>
+<p><b>统一实现：</b>同一3000地点与2359/313/328划分，使用DINOv3-L退化街景、完整时间轴CLAP音频与DINOv3卫星候选；在球面回归和街景→遥感InfoNCE检索中，以三个随机种子依次比较退化视觉、正确/错配音频、FoundIR恢复、mixed-corruption training和Clean→Degraded特征蒸馏。</p>
+<p><b>证据1 · 不只是分类校准：</b>Blur-10球面回归中位误差由退化视觉2913 km降至正确音频1972 km；检索Recall@1由6.20%升至7.32%，Top-1中位地理误差由4068 km降至2543 km。</p>
+<p><b>证据2 · 依赖正确地点配对：</b>Blur-10错配音频的检索中位地理误差为4953 km，明显差于正确音频的2543 km，说明收益不是“随便加入一个额外向量”造成的。</p>
+<p><b>证据3 · 能与视觉补救竞争：</b>Blur-10回归由音频1971.9 km略胜FoundIR 1982.1 km；检索由FoundIR取得略高Recall@1（7.62% vs 7.32%），但音频取得更低地理误差（2542.8 vs 2765.1 km）。Blur-5检索两项指标均由音频最好；28px等条件则常由视觉路线领先。</p>
+<p><b>严格边界：</b>mixed与distillation是任务匹配的特征级诊断，并非相关论文的完整复现；音频权重仍由验证集按退化条件选择。因此这些结果建立研究动机和竞争性证据，不构成最终SOTA声明。</p>
+<div class="transition next"><strong>进入架构阶段：</strong>最终模型应在不知道真实退化类型和尺度时，自主估计视觉证据还能恢复多少、音频新增多少，再进行样本级融合。</div>
 </article>
 </div>
 <div class="formula-guide">
@@ -330,7 +324,7 @@
       <p id="empty" class="empty" hidden>没有找到匹配的实验记录。</p>
     </main>
   </div>
-  <script src="app.js?v=20260818-architecture-v4">
+  <script src="app.js?v=20260818-architecture-v5">
 </script>
   <script src="literature.js?v=20260818-architecture-v4">
 </script>
