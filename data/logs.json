@@ -1,7 +1,7 @@
 {
   "project": {
     "title": "退化视觉条件下的任务空间音频补偿地理定位",
-    "hypothesis": "当前H3分类证据支持条件性音频补偿，而非所有退化下的普遍优势：相对FoundIR为7/8组合NLL更低；相对像素级退化训练和干净教师蒸馏为13/24组合NLL更低、8/24准确率更高；Blur-10达到4/4尺度NLL与3/4尺度准确率更优；正确音频对严格错配音频为24/24 NLL更低。球面回归与跨视角检索尚未在同一退化和视觉补救协议下完成，因此下一阶段将架构设计与跨任务复核并行推进。",
+    "hypothesis": "基础验证已支持：退化视觉下，配对音频可作为独立的任务空间地理锚点，而非仅是H3分类校准。分类中相对FoundIR为7/8组合NLL更低、相对正式视觉补救为13/24；球面回归在Blur-5/10降低中位误差；跨视角检索在3/6退化条件提高Recall@1、4/6降低Top-1地理误差。该结论用于建立新研究路径，不声称所有退化、尺度和任务上普遍最优；收益异质性的原因留待架构与真实退化实验分析。",
     "samples": 3000,
     "train": 2359,
     "validation": 313,
@@ -1890,6 +1890,62 @@
         "Corruption仅优化四尺度地理交叉熵；Distillation额外加入0.5×[1−cos(z_degraded,z_clean_teacher)]。",
         "每个epoch在六种退化、四个尺度的验证NLL之和上选择模型；测试集只用于最终评估。表格为seed 42/43/44均值。",
         "音频相对最佳视觉ΔNLL=min[NLL(corruption),NLL(distillation)]−NLL(V+A)，正值表示音频NLL更低。"
+      ]
+    },
+    {
+      "id": "degraded-cross-task-validation",
+      "date": "2026-08-18",
+      "category": "跨任务假设验证",
+      "status": "球面回归与跨视角检索·三随机种子完成",
+      "title": "退化视觉下的音频补偿能否跨越分类、回归与检索？",
+      "question": "分类中的音频NLL收益是否只是网格分类头的校准现象，还是可迁移到连续坐标回归和跨视角检索的地理证据？",
+      "protocol": [
+        "3000地点·2359/313/328划分",
+        "Clean+6退化条件",
+        "球面回归+跨视角检索·3随机种子"
+      ],
+      "figure": "assets/experiments/2026-08-18-degraded-cross-task.png",
+      "figureCaption": "左为球面回归中位Haversine误差，右为街景→遥感检索Recall@1、候选排名与Top-1地理误差；所有数值为seed 42/43/44均值。",
+      "table": {
+        "headers": ["条件", "回归α", "回归中位km V→V+A", "回归错配km", "检索α", "检索R@1 V→V+A", "错配R@1", "检索Top-1中位km V→V+A"],
+        "rows": [
+          ["Clean", "0.020", "517.0→512.3", "520.4", "0.087", "19.51%→19.61%", "19.92%", "655.8→649.2"],
+          ["Blur 2", "0.020", "651.8→663.3", "673.2", "0.127", "20.53%→20.22%", "19.72%", "647.9→659.7"],
+          ["Blur 5", "0.053", "1171.2→1154.6", "1203.3", "0.353", "14.13%→14.74%", "10.77%", "1133.0→989.2"],
+          ["Blur 10", "0.953", "2913.2→1971.9", "6747.8", "0.380", "6.20%→7.32%", "3.86%", "4068.3→2542.8"],
+          ["112px", "0.007", "524.2→531.3", "523.2", "0.120", "18.39%→18.39%", "18.39%", "678.3→678.9"],
+          ["56px", "0.013", "682.0→683.7", "681.6", "0.267", "16.46%→16.26%", "15.85%", "941.1→919.0"],
+          ["28px", "0.027", "1092.9→1106.3", "1136.2", "0.360", "10.67%→10.87%", "9.76%", "1466.7→1278.4"]
+        ]
+      },
+      "findings": [
+        "球面回归在6个退化条件中的Blur-5和Blur-10降低中位误差；Blur-10从2913.2 km降至1971.9 km，改善941.3 km。",
+        "跨视角检索Recall@1在3/6退化条件提高，配对音频在5/6优于错配音频；Top-1地理误差中位数在4/6下降。",
+        "Blur-10的检索Recall@1由6.20%升至7.32%，中位候选排名由26.7降至20.0，Top-1地理误差由4068.3 km降至2542.8 km；错配音频则为4953.1 km。",
+        "结合既有H3分类证据，三种任务形式均观察到配对音频收益，足以支持‘退化视觉下音频补偿是一条新的任务空间地理锚点/路径’作为研究动机。",
+        "收益并非覆盖每个退化条件；这说明模型需要学习样本级可靠性，但不能据此断言优势由退化机制因果决定。"
+      ],
+      "limits": [
+        "回归与检索使用冻结退化特征和任务专用轻量头，属于基础假设探针，不是最终架构上限。",
+        "这两种任务尚未逐一复现FoundIR、corruption training和distillation；它们比较的是退化视觉、配对音频与错配音频。",
+        "错配音频采用全局derangement，不如分类实验的来源/长度严格匹配控制强。",
+        "目前仍是人工高斯模糊和降采样，需要真实退化数据复核。"
+      ],
+      "files": [
+        "experiments/scale_modality_probe/degraded_cross_task_probe.py",
+        "experiments/scale_modality_probe/runs/formal_audio_events_pilot3000/degraded_cross_task_seed42.json",
+        "experiments/scale_modality_probe/runs/formal_audio_events_pilot3000/degraded_cross_task_seed43.json",
+        "experiments/scale_modality_probe/runs/formal_audio_events_pilot3000/degraded_cross_task_seed44.json",
+        "experiments/scale_modality_probe/runs/formal_audio_events_pilot3000/degraded_cross_task_summary.json",
+        "experiment_log_web/assets/experiments/2026-08-18-degraded-cross-task.png"
+      ],
+      "timestamp": "2026-08-18T20:30:00Z",
+      "calculation": [
+        "球面回归将纬经度转换为三维单位向量，预测后归一化，并以大圆角距离训练；测试指标使用Haversine公里误差。",
+        "回归融合为normalize[(1−α)u_visual+αu_audio]；α在验证集0到1、步长0.02搜索，以中位公里误差最小为准。",
+        "检索联合学习街景/音频查询投影与卫星候选投影，使用对称InfoNCE；融合相似度为(1−α)s_visual+αs_audio。",
+        "检索α只在验证集选择，先最小化中位排名、再最大化Recall@5；测试报告Recall@1/5/10、排名和Top-1候选地理误差。",
+        "表格为seed 42、43、44算术均值；箭头左为退化视觉，右为退化视觉加配对音频。"
       ]
     }
   ]
