@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="description" content="视觉、遥感与音频联合地理定位实验日志">
   <title>GeoSound Lab · 实验日志</title>
-  <link rel="stylesheet" href="styles.css">
-  <link rel="stylesheet" href="layout-fixes.css">
+  <link rel="stylesheet" href="styles.css?v=20260818-architecture-v1">
+  <link rel="stylesheet" href="layout-fixes.css?v=20260818-architecture-v1">
 </head>
 <body>
   <div class="shell">
@@ -41,7 +41,7 @@
 <article class="decision-node"><div class="decision-meta">STEP 13 · 音频独立事件MIL</div><h3>不看视觉地学习完整时间轴事件权重</h3><p><b>观察：</b>注意力对联合模型r2/r3 NLL只有0.01量级改善；删除最高事件平均比随机删除更有害，但种子44全部反向；只保留最高事件明显恶化。</p><p><b>决策：</b>当前证据不支持单一特殊事件稳定主导定位，更像多个声景窗口的分布式弱证据。</p><div class="transition"><strong>最后还剩哪个可证伪解释？</strong> 音频可能不是平均无用，而是在视觉空间信息真正缺失时才有价值；必须预先操纵视觉而非事后挑高熵样本。</div></article>
 <article class="decision-node"><div class="decision-meta">STEP 14 · 像素级视觉退化</div><h3>三类三级退化、重新编码、验证集选择音频权重</h3><p><b>观察：</b>Blur 10使音频权重升至0.52–0.61，四尺度NLL改善0.22–0.31、准确率提高2.4–8.2个百分点；28px降采样也稳定改善。正确音频显著优于同来源、相近长度错误音频。</p><p><b>边界：</b>变暗没有同样趋势；不是任何退化或任意新模态都会有效，关键是视觉空间结构丢失。</p><div class="transition next"><strong>当前确定结论：</strong>不支持“正常视觉普遍加音频”与“单一特殊事件主导”；支持“视觉空间信息缺失时，正确音频提供条件性地理证据”。后续方法应学习输入可见的可靠性，而不是接收真实尺度或强制融合。</div></article>
 <article class="decision-node"><div class="decision-meta">STEP 15 · 强通用图像恢复路线对照</div><h3>退化视觉+音频，是否比FoundIR恢复视觉更有效？</h3><p><b>实现：</b>使用ICCV 2025 FoundIR官方generalist权重，在相同3000地点、四视角、DINOv3-L、空间划分和三个随机种子下比较退化V、退化V+A与FoundIR-V。</p><p><b>观察：</b>按NLL，音频补偿在8个“退化×尺度”组合中的7个优于FoundIR（87.5%）；按准确率在5个优于FoundIR（62.5%）。Blur-10的r0、r2、r3上两项指标均由音频补偿胜出。</p><p><b>当前motivation：</b>通用恢复试图在像素空间重建输入，音频补偿则直接增加独立的场景证据。当前结果支持后者在多数强退化条件下带来更大的概率定位增益。</p><div class="transition next"><strong>下一步：</strong>不把FoundIR放进最终方法，而把它保留为竞争路线；构建不接收退化标签的共享模型，学习视觉可靠性与配对音频贡献，并扩展到真实退化和任务驱动恢复基线。</div></article>
-<article class="decision-node"><div class="decision-meta">STEP 16 · 正式最小视觉补救验证</div><h3>退化训练和干净教师蒸馏后，音频证据还存在吗？</h3><p><b>实现：</b>六级像素退化统一训练；解冻DINOv3-L最后一层和final norm；分别使用地理监督与Clean→Degraded蒸馏；3000地点、三个随机种子。</p><p><b>观察：</b>相对两种视觉补救中的较优者，音频在24个组合中13个NLL更低、8个准确率更高。Blur-10最稳定：4/4尺度NLL更低，3/4尺度准确率提高；正确音频对严格错配音频24/24组合NLL更低。</p><p><b>边界：</b>28px主要由视觉鲁棒训练领先，不能把所有退化合并为音频有效。当前证据支持“严重模糊中的条件性音频证据”，不支持“音频普遍优于视觉补救”。</p><div class="transition next"><strong>下一步：</strong>围绕Blur-10有效区域做真实模糊与同骨干音频融合验证，再决定正式架构，而不是继续堆恢复模型。</div></article>
+<article class="decision-node"><div class="decision-meta">STEP 16 · 正式最小视觉补救验证</div><h3>退化训练和干净教师蒸馏后，音频证据还存在吗？</h3><p><b>实现：</b>六级像素退化统一训练；解冻DINOv3-L最后一层和final norm；分别使用地理监督与Clean→Degraded蒸馏；3000地点、三个随机种子。</p><p><b>观察：</b>相对两种视觉补救中的较优者，音频在24个组合中13个NLL更低、8个准确率更高。Blur-10最稳定：4/4尺度NLL更低，3/4尺度准确率提高；正确音频对严格错配音频24/24组合NLL更低。</p><p><b>边界：</b>28px主要由视觉鲁棒训练领先，不能把所有退化合并为音频有效。当前证据支持“严重模糊中的条件性音频证据”，不支持“音频普遍优于视觉补救”。</p><div class="transition next"><strong>进入架构阶段：</strong>设计不接收真实退化标签或真实尺度的可靠性条件化证据融合；真实模糊与同骨干公平融合将作为架构验证，而不是继续延长motivation筛选。</div></article>
 </div><div class="formula-guide"><h3 class="block-title">Decision rule · 我们怎样推进</h3><p><code>结果改善</code> 不自动等于假设成立：必须检查数据划分、比较公平性和替代解释。</p><p><code>结果退化</code> 不自动等于模态无信息：先区分数据无信息、编码器未提取、目标不匹配和融合失败。</p><p><code>下一实验</code> 应尽量只破坏或改变一个因素，并能在两个竞争解释之间给出不同预期结果。</p></div></section>
 
       <section class="controls" aria-label="日志筛选">
@@ -54,8 +54,8 @@
       <p id="empty" class="empty" hidden>没有找到匹配的实验记录。</p>
     </main>
   </div>
-  <script src="app.js?v=20260818-rescue-v4"></script>
-  <script src="literature.js?v=20260818-rescue-v4"></script>
-  <script src="research-map.js?v=20260818-rescue-v4"></script>
+  <script src="app.js?v=20260818-architecture-v1"></script>
+  <script src="literature.js?v=20260818-architecture-v1"></script>
+  <script src="research-map.js?v=20260818-architecture-v1"></script>
 </body>
 </html>

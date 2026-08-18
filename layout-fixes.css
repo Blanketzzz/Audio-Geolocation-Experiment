@@ -71,7 +71,11 @@
   background: rgba(255,255,255,.62);
   color: inherit;
   text-decoration: none;
+  overflow: hidden;
 }
+.recent-paper img { width:calc(100% + 32px); height:185px; margin:-16px -16px 14px; object-fit:cover; object-position:top; border-bottom:1px solid var(--line); filter:saturate(.72); transition:.2s ease; }
+.recent-paper:hover img { filter:saturate(1); transform:scale(1.012); }
+.recent-paper-copy { display:grid; }
 
 .recent-paper small {
   color: var(--orange);

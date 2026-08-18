@@ -3,7 +3,43 @@ const recentPapers = [
     venue: "ICCV 2025 · ALL-IN-ONE RESTORATION",
     title: "FoundIR",
     note: "统一处理多种未知图像退化的强通用恢复模型；本项目使用其官方generalist权重，直接检验恢复视觉是否会消除音频的定位增益。",
+    image: "assets/papers/foundir_iccv2025.png",
     url: "https://openaccess.thecvf.com/content/ICCV2025/html/Cao_FoundIR_Unleashing_Million-scale_Training_Data_to_Advance_Foundation_Models_for_ICCV_2025_paper.html"
+  },
+  {
+    venue: "ECCV 2024 · CORRUPTED CVGL BENCHMARK",
+    title: "Benchmarking the Robustness of Cross-view Geo-localization Models",
+    note: "构造16类、5级退化的CVUSA-C/CVACT-C，并验证退化增强策略；它直接支持把corruption training作为定位鲁棒性的独立视觉路线。",
+    image: "assets/papers/cvgl_robustness_eccv2024.png",
+    url: "https://eccv.ecva.net/virtual/2024/poster/2096"
+  },
+  {
+    venue: "ICCV 2025 WORKSHOP · LOW-QUALITY VPR",
+    title: "LoQI-VPR",
+    note: "使用高质量教师向低质量学生蒸馏地点描述符，并联合通道相关、MSE与Triplet约束；说明特征蒸馏是低质量定位的任务相关路线。",
+    image: "assets/papers/loqi_vpr_iccv2025.png",
+    url: "https://ai4ce.github.io/LoQI-VPR/"
+  },
+  {
+    venue: "AAAI 2026 · CORRUPTION-ROBUST CVGL",
+    title: "MRGeo",
+    note: "通过空间自适应表示、通道校准与区域几何对齐直接增强退化跨视角定位；提醒最终论文必须与任务内视觉鲁棒架构比较。",
+    image: "assets/papers/mrgeo_aaai2026.png",
+    url: "https://ojs.aaai.org/index.php/AAAI/article/view/38043"
+  },
+  {
+    venue: "2024 · MULTI-WEATHER CVGL",
+    title: "MCGF",
+    note: "把图像恢复与跨视角地理定位联合起来处理多天气输入，是像素恢复和任务优化结合的直接相关工作。",
+    image: "assets/papers/mcgf_2024.png",
+    url: "https://arxiv.org/abs/2408.02408"
+  },
+  {
+    venue: "ECCV 2024 · INSTRUCTION RESTORATION",
+    title: "InstructIR",
+    note: "以文本指令控制统一图像恢复，覆盖去模糊、去雾、去雨、去噪和低光增强；它是恢复路线的重要参考，但不是地理定位模型。",
+    image: "assets/papers/instructir_eccv2024.png",
+    url: "https://github.com/mv-lab/InstructIR"
   },
   {
     venue: "CVPR 2022 · IMAGE RESTORATION",
@@ -107,9 +143,12 @@ if (paperStrip) {
     <div class="recent-paper-grid">
       ${recentPapers.map(p => `
         <a class="recent-paper" href="${p.url}" target="_blank" rel="noreferrer">
+          ${p.image ? `<img src="${p.image}" alt="${p.title} paper thumbnail" loading="lazy">` : ``}
+          <div class="recent-paper-copy">
           <small>${p.venue}</small>
           <b>${p.title}</b>
           <span>${p.note}</span>
+          </div>
         </a>
       `).join("")}
     </div>`;
