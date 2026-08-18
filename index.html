@@ -293,6 +293,15 @@
 <p><b>边界：</b>回归和检索是任务专用轻量探针，尚未把FoundIR、退化训练和蒸馏全部迁移到这两种任务；不同条件的收益不均匀也不能证明由某种退化机制因果决定。</p>
 <div class="transition next"><strong>当前判决：</strong>分类、回归和检索共同说明“退化视觉下音频补偿可成为新地理锚点”是可行研究动机。下一步转入统一架构设计，让模型学习每个样本的证据可靠性，而不是继续要求所有条件都胜出。</div>
 </article>
+<article class="decision-node">
+<div class="decision-meta">STEP 18 · 跨任务视觉补救竞争对比</div>
+<h3>正确音频能否达到或超过视觉内部补救路线？</h3>
+<p><b>实现：</b>将FoundIR恢复、mixed-corruption training和Clean→Degraded特征蒸馏迁移到球面回归与街景→遥感检索；保持3000地点划分、DINOv3-L特征、任务头、训练预算与三随机种子一致，并保留退化视觉、正确音频和错配音频。</p>
+<p><b>回归结果：</b>Blur-10中位误差为音频1971.9 km、FoundIR 1982.1 km、蒸馏2615.2 km、混合退化训练2669.1 km，音频略胜FoundIR；Blur-5由蒸馏最好，28px也由蒸馏最好。</p>
+<p><b>检索结果：</b>Blur-10的Recall@1由FoundIR略胜（7.62% vs 7.32%），但音频Top-1中位地理误差更低（2542.8 vs 2765.1 km）；Blur-5的Recall@1与地理误差均由音频最好。低分辨率条件则没有统一赢家。</p>
+<p><b>严格边界：</b>mixed与distillation是任务匹配的特征级诊断，不是对应论文完整复现；音频融合仍按退化条件在验证集选择权重。因此它支持路线可行性，不是最终SOTA声明。</p>
+<div class="transition next"><strong>新的架构问题：</strong>音频和视觉补救并非互斥。最终模型应学习“视觉证据还能救回多少、声学证据新增多少”，再做样本级融合，而不是预设音频或恢复路线始终获胜。</div>
+</article>
 </div>
 <div class="formula-guide">
 <h3 class="block-title">Decision rule · 我们怎样推进</h3>
@@ -321,11 +330,11 @@
       <p id="empty" class="empty" hidden>没有找到匹配的实验记录。</p>
     </main>
   </div>
-  <script src="app.js?v=20260818-architecture-v3">
+  <script src="app.js?v=20260818-architecture-v4">
 </script>
-  <script src="literature.js?v=20260818-architecture-v3">
+  <script src="literature.js?v=20260818-architecture-v4">
 </script>
-  <script src="research-map.js?v=20260818-architecture-v3">
+  <script src="research-map.js?v=20260818-architecture-v4">
 </script>
 </body>
 </html>

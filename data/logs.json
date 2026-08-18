@@ -1,7 +1,7 @@
 {
   "project": {
     "title": "退化视觉条件下的任务空间音频补偿地理定位",
-    "hypothesis": "基础验证已支持：退化视觉下，配对音频可作为独立的任务空间地理锚点，而非仅是H3分类校准。分类中相对FoundIR为7/8组合NLL更低、相对正式视觉补救为13/24；球面回归在Blur-5/10降低中位误差；跨视角检索在3/6退化条件提高Recall@1、4/6降低Top-1地理误差。该结论用于建立新研究路径，不声称所有退化、尺度和任务上普遍最优；收益异质性的原因留待架构与真实退化实验分析。",
+    "hypothesis": "基础竞争验证已支持：退化视觉下，配对音频能够提供视觉恢复、退化训练与特征蒸馏无法稳定替代的任务空间地理证据。分类、球面回归和跨视角检索均存在音频达到或超过视觉内部补救的区域；例如Blur-10回归中音频1971.9 km略优于FoundIR 1982.1 km，而检索中FoundIR赢Recall@1、音频赢Top-1地理误差。研究目标不是证明音频全条件最优，而是学习视觉可恢复证据与新增声学证据的样本级互补。",
     "samples": 3000,
     "train": 2359,
     "validation": 313,
@@ -1946,6 +1946,60 @@
         "检索联合学习街景/音频查询投影与卫星候选投影，使用对称InfoNCE；融合相似度为(1−α)s_visual+αs_audio。",
         "检索α只在验证集选择，先最小化中位排名、再最大化Recall@5；测试报告Recall@1/5/10、排名和Top-1候选地理误差。",
         "表格为seed 42、43、44算术均值；箭头左为退化视觉，右为退化视觉加配对音频。"
+      ]
+    },
+    {
+      "id": "cross-task-visual-rescue-competition",
+      "date": "2026-08-18",
+      "category": "跨任务竞争验证",
+      "status": "三路线×两任务×三随机种子完成",
+      "title": "音频补偿与视觉恢复、退化训练和特征蒸馏的跨任务对比",
+      "question": "正确音频优于错配音频之后，它是否还能在球面回归和跨视角检索中达到或超过代表性的视觉内部补救路线？",
+      "protocol": ["3000地点·固定空间划分", "FoundIR+Mixed-corruption+Distillation", "球面回归+跨视角检索·3种子"],
+      "figure": "assets/experiments/2026-08-18-cross-task-visual-rescue.png",
+      "figureCaption": "三随机种子均值。左：球面回归中位误差；中：跨视角检索Recall@1；右：检索Top-1候选的中位地理误差。FoundIR仅对Blur-10与28px运行。",
+      "table": {
+        "headers": ["条件/指标", "退化视觉", "视觉+音频", "Mixed", "Distill", "FoundIR", "最佳"],
+        "rows": [
+          ["Blur 5·回归km↓", "1171.2", "1154.6", "1127.5", "1080.1", "—", "Distill"],
+          ["Blur 5·检索R@1↑", "14.13%", "14.74%", "12.20%", "9.96%", "—", "音频"],
+          ["Blur 5·检索地理km↓", "1133.0", "989.2", "1675.2", "1807.8", "—", "音频"],
+          ["Blur 10·回归km↓", "2913.2", "1971.9", "2669.1", "2615.2", "1982.1", "音频"],
+          ["Blur 10·检索R@1↑", "6.20%", "7.32%", "3.56%", "4.67%", "7.62%", "FoundIR"],
+          ["Blur 10·检索地理km↓", "4068.3", "2542.8", "4748.9", "4316.9", "2765.1", "音频"],
+          ["28px·回归km↓", "1092.9", "1106.3", "1150.5", "1042.9", "1069.7", "Distill"],
+          ["28px·检索R@1↑", "10.67%", "10.87%", "11.89%", "10.37%", "11.89%", "Mixed/FoundIR"],
+          ["28px·检索地理km↓", "1466.7", "1278.4", "1615.4", "1780.3", "1543.2", "音频"]
+        ]
+      },
+      "findings": [
+        "竞争基线和错配音频不是二选一：前者判断新路线是否值得研究，后者判断收益是否来自地点对应声学证据。",
+        "Blur-10球面回归中，音频中位误差1971.9 km，略优于FoundIR的1982.1 km，并明显优于蒸馏与混合退化训练。",
+        "Blur-10检索呈现指标互补：FoundIR的Recall@1略高，但音频返回候选的地理误差更低，说明只看Top-1身份命中会遗漏距离结构。",
+        "Blur-5检索的Recall@1和Top-1地理误差均由音频最好；但Blur-5回归和28px回归由蒸馏最好。",
+        "这些结果支持‘音频提供视觉内部补救无法稳定替代的外部地理证据’，不支持‘音频普遍优于视觉补救’。"
+      ],
+      "limits": [
+        "Mixed-corruption与Clean-feature distillation是任务匹配的特征级最小诊断，不是相关论文的完整复现。",
+        "FoundIR使用官方恢复权重与恢复图像重新提取的DINOv3-L特征，但只覆盖Blur-10和28px。",
+        "音频模型按每种退化在验证集选择融合权重；视觉鲁棒模型跨六种退化共享，尚非最终完全同构架构。",
+        "人工退化和3000地点仍限制外推；正式模型阶段需要未知退化、真实退化和更大数据验证。"
+      ],
+      "files": [
+        "experiments/scale_modality_probe/cross_task_visual_rescue.py",
+        "experiments/scale_modality_probe/summarize_cross_task_visual_rescue.py",
+        "experiments/scale_modality_probe/runs/formal_audio_events_pilot3000/cross_task_visual_rescue_seed42.json",
+        "experiments/scale_modality_probe/runs/formal_audio_events_pilot3000/cross_task_visual_rescue_seed43.json",
+        "experiments/scale_modality_probe/runs/formal_audio_events_pilot3000/cross_task_visual_rescue_seed44.json",
+        "experiments/scale_modality_probe/runs/formal_audio_events_pilot3000/cross_task_visual_rescue_summary.json",
+        "experiment_log_web/assets/experiments/2026-08-18-cross-task-visual-rescue.png"
+      ],
+      "timestamp": "2026-08-18T21:05:00Z",
+      "calculation": [
+        "Mixed-corruption在每个训练batch随机选择六种退化之一，并以对应回归或对称InfoNCE检索目标训练共享模型。",
+        "Distillation使用相同结构与任务目标，并增加0.5×[1−cos(z_degraded,z_clean)]的干净特征一致性损失。",
+        "FoundIR恢复特征分别训练与退化视觉相同容量的回归头或街景—卫星检索投影头。",
+        "所有指标为seed 42、43、44算术均值；回归和检索地理误差越低越好，Recall@1越高越好。"
       ]
     }
   ]
