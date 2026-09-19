@@ -58,7 +58,7 @@ def process_state():
             cmd = (entry / "cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        if "geocrd_v2_full" in cmd and (
+        if ("geocrd_v2_full" in cmd or "geocrd_ablation_e1_" in cmd) and (
             "train_geocrd_v2_classification.py" in cmd
             or "evaluate_geocrd_v2_classification.py" in cmd
             or "evaluate_geocrd_v2_evidence_controls.py" in cmd
@@ -163,6 +163,49 @@ def evidence_control_progress():
     }
 
 
+def ablation_progress(processes):
+    variants = (
+        "native_head", "deterministic_router", "no_conditioning",
+        "no_rate", "nll_only", "full",
+    )
+    command_text = " ".join(item["command"] for item in processes)
+    rows = []
+    total_steps = 0
+    completed_steps = 0
+    current = None
+    recent_seconds = None
+    for variant in variants:
+        root = RD_ROOT / f"geocrd_ablation_e1_{variant}"
+        config = read_json(root / "run_config.json", {}) or {}
+        train_samples = int(config.get("train_samples", 62790) or 62790)
+        batch_size = int(config.get("batch_size", 4) or 4)
+        expected = math.ceil(train_samples / batch_size)
+        logs = tail_jsonl(root / "train.jsonl", 300)
+        step = int(logs[-1].get("global_step", 0)) if logs else 0
+        done = step >= expected
+        running = f"geocrd_ablation_e1_{variant}" in command_text
+        if running:
+            current = variant
+            recent_seconds = mean(logs, "seconds")
+        total_steps += expected
+        completed_steps += min(step, expected)
+        rows.append({
+            "variant": variant, "step": step, "expected": expected,
+            "percent": 100 * min(step, expected) / expected,
+            "done": done, "running": running,
+            "trainable_parameters": config.get("trainable_parameters"),
+        })
+    remaining = max(0, total_steps - completed_steps)
+    return {
+        "variants": rows,
+        "current": current,
+        "percent": 100 * completed_steps / total_steps if total_steps else 0,
+        "completed": sum(row["done"] for row in rows),
+        "total_variants": len(rows),
+        "eta_seconds": remaining * recent_seconds if recent_seconds else None,
+    }
+
+
 def build_progress():
     config = read_json(RUN_ROOT / "run_config.json", {}) or {}
     rows = tail_jsonl(RUN_ROOT / "train.jsonl", 300)
@@ -207,12 +250,18 @@ def build_progress():
         stage, detail = "RD预算筛选", "正在选择Rate预算"
 
     causal = evidence_control_progress()
+    ablations = ablation_progress(processes)
     if causal["complete"]:
         stage, detail = "因果对照完成", "三条件×五阶段全量错配验证已完成"
     elif any("evaluate_geocrd_v2_evidence_controls.py" in item["command"] for item in processes):
         current = causal.get("active") or {}
         stage = "全量因果对照"
         detail = f"{current.get('condition', '—')} · {current.get('control', '—')} · {current.get('coalition', '—')} · {current.get('samples', 0)}/7550"
+
+    if ablations["current"]:
+        row = next(item for item in ablations["variants"] if item["variant"] == ablations["current"])
+        stage = "GeoCRD架构归因消融"
+        detail = f"{ablations['current']} · {row['step']}/{row['expected']} · 总体{ablations['percent']:.1f}%"
 
     phases = [
         {"name": "RD预算筛选", "state": "done" if rd_done else "active"},
@@ -253,6 +302,7 @@ def build_progress():
         },
         "validation": {"epoch3": eval3, "epoch6": eval6, "expected": expected_evals},
         "evidence_controls": causal,
+        "ablations": ablations,
         "gpus": gpu_state(),
         "processes": processes,
     }
