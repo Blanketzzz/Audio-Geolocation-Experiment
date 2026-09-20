@@ -242,7 +242,7 @@ def build_progress():
     train_samples = int(config.get("train_samples", 0) or 0)
     batch_size = int(config.get("batch_size", 1) or 1)
     batches_per_epoch = math.ceil(train_samples / batch_size) if train_samples else 0
-    target_epochs = 6
+    target_epochs = int(config.get("epochs", 6) or 6)
     total_batches = batches_per_epoch * target_epochs
     global_step = int(latest.get("global_step", 0) or 0)
     seconds_per_batch = mean(rows, "seconds")
