@@ -169,40 +169,66 @@ def ablation_progress(processes):
         "no_rate", "nll_only", "full",
     )
     command_text = " ".join(item["command"] for item in processes)
+    history = read_json(RD_ROOT / "geocrd_ablation_convergence.json", {}) or {}
     rows = []
-    total_steps = 0
-    completed_steps = 0
+    total_first_steps = 0
+    completed_first_steps = 0
     current = None
-    recent_seconds = None
+    current_phase = None
+    current_condition = None
     for variant in variants:
         root = RD_ROOT / f"geocrd_ablation_e1_{variant}"
         config = read_json(root / "run_config.json", {}) or {}
         train_samples = int(config.get("train_samples", 62790) or 62790)
         batch_size = int(config.get("batch_size", 4) or 4)
-        expected = math.ceil(train_samples / batch_size)
+        per_epoch = math.ceil(train_samples / batch_size)
         logs = tail_jsonl(root / "train.jsonl", 300)
         step = int(logs[-1].get("global_step", 0)) if logs else 0
-        done = step >= expected
-        running = f"geocrd_ablation_e1_{variant}" in command_text
+        variant_commands = [item["command"] for item in processes if f"geocrd_ablation_e1_{variant}" in item["command"]]
+        running = bool(variant_commands)
+        phase = None
+        condition = None
         if running:
             current = variant
-            recent_seconds = mean(logs, "seconds")
-        total_steps += expected
-        completed_steps += min(step, expected)
+            joined = " ".join(variant_commands)
+            phase = "验证" if "evaluate_geocrd_v2_classification.py" in joined else "训练"
+            for candidate in ("vision:lowres:28", "vision:blur:10", "clean"):
+                if f"--condition {candidate}" in joined:
+                    condition = candidate
+                    break
+            current_phase, current_condition = phase, condition
+        record = history.get(variant, {})
+        status = record.get("status")
+        converged = status in {"converged", "max_epochs"}
+        first_done = step >= per_epoch
+        total_first_steps += per_epoch
+        completed_first_steps += min(step, per_epoch)
         rows.append({
-            "variant": variant, "step": step, "expected": expected,
-            "percent": 100 * min(step, expected) / expected,
-            "done": done, "running": running,
+            "variant": variant,
+            "step": step,
+            "expected": per_epoch,
+            "epoch_equivalent": step / per_epoch,
+            "target_epoch": config.get("epochs", 1),
+            "first_done": first_done,
+            "running": running,
+            "phase": phase,
+            "condition": condition,
+            "converged": converged,
+            "best_epoch": record.get("best_epoch"),
+            "best_score": record.get("best_score"),
+            "stale": record.get("stale", 0),
             "trainable_parameters": config.get("trainable_parameters"),
         })
-    remaining = max(0, total_steps - completed_steps)
     return {
         "variants": rows,
         "current": current,
-        "percent": 100 * completed_steps / total_steps if total_steps else 0,
-        "completed": sum(row["done"] for row in rows),
+        "current_phase": current_phase,
+        "current_condition": current_condition,
+        "first_checkpoint_percent": 100 * completed_first_steps / total_first_steps if total_first_steps else 0,
+        "first_completed": sum(row["first_done"] for row in rows),
+        "converged": sum(row["converged"] for row in rows),
         "total_variants": len(rows),
-        "eta_seconds": remaining * recent_seconds if recent_seconds else None,
+        "eta_seconds": None,
     }
 
 
@@ -261,7 +287,10 @@ def build_progress():
     if ablations["current"]:
         row = next(item for item in ablations["variants"] if item["variant"] == ablations["current"])
         stage = "GeoCRD架构归因消融"
-        detail = f"{ablations['current']} · {row['step']}/{row['expected']} · 总体{ablations['percent']:.1f}%"
+        phase = ablations.get("current_phase") or "运行"
+        condition = ablations.get("current_condition")
+        suffix = f" · {condition}" if condition else ""
+        detail = f"{ablations['current']} · {phase}{suffix} · 累计{row['epoch_equivalent']:.2f} epochs · {ablations['converged']}/6已收敛"
 
     phases = [
         {"name": "RD预算筛选", "state": "done" if rd_done else "active"},
