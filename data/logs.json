@@ -2536,6 +2536,123 @@
         "experiments/pid_omni/runs/geocrd_v2_full/evidence_controls_val_vision_blur_10/causal_summary.json",
         "experiments/pid_omni/runs/geocrd_v2_full/evidence_controls_val_vision_lowres_28/causal_summary.json"
       ]
+    },
+    {
+      "id": "conditional-geographic-information-e6-audit",
+      "date": "2026-09-20",
+      "timestamp": "2026-09-20T18:50:00Z",
+      "category": "理论量离线验证",
+      "status": "7,549样本×3条件·无需重训",
+      "title": "GeoDist诱导的条件地理信息：Epoch-6联盟分解与退化协议审计",
+      "question": "在同一GeoCRD检查点和同一地理评分空间中，音频、文本及其交互能减少多少模型实现的地理决策风险？固定Blur-10/28px是否足以成为正式退化协议？",
+      "headline": "条件地理信息存在明显状态依赖：音频A|V从Clean的+0.0216升至Blur-10的+0.1395，文本T|V从−0.0614升至+0.2690；联合A+T|V达到+0.3334。音频增益—Rate相关性从0.008升至0.451。旧28px破坏宽高比，只保留为历史诊断；正式训练已改为不向模型提供标签的连续随机退化。",
+      "protocol": [
+        "Epoch-6固定模型，不重新训练",
+        "7,549个所有联盟与错配文件共同有效地点",
+        "V/VA/VT/VAT逐地点配对",
+        "Clean/Blur-10/旧28px诊断锚点",
+        "2,000次确定性bootstrap均值置信区间",
+        "正确配对与来源/长度匹配错配对照"
+      ],
+      "multiSeries": {
+        "labels": [
+          "Clean",
+          "Blur-10",
+          "旧28px"
+        ],
+        "series": [
+          {
+            "name": "音频条件地理信息 · A|V",
+            "color": "#d87544",
+            "values": [
+              2.16,
+              13.95,
+              14.88
+            ]
+          },
+          {
+            "name": "文本条件地理信息 · T|V",
+            "color": "#5b78a6",
+            "values": [
+              -6.14,
+              26.9,
+              28.36
+            ]
+          },
+          {
+            "name": "联合条件地理信息 · A+T|V",
+            "color": "#174f3a",
+            "values": [
+              0.81,
+              33.34,
+              34.25
+            ]
+          }
+        ]
+      },
+      "table": {
+        "headers": [
+          "条件",
+          "A|V均值 [95% CI]",
+          "T|V均值 [95% CI]",
+          "A+T|V均值 [95% CI]",
+          "交互J",
+          "corr(A增益, A Rate)"
+        ],
+        "rows": [
+          [
+            "Clean",
+            "+0.0216 [0.0189,0.0244]",
+            "−0.0614 [−0.0674,−0.0554]",
+            "+0.0081 [0.0039,0.0123]",
+            "+0.0479",
+            "0.008"
+          ],
+          [
+            "Blur-10",
+            "+0.1395 [0.1323,0.1467]",
+            "+0.2690 [0.2592,0.2786]",
+            "+0.3334 [0.3227,0.3438]",
+            "−0.0752",
+            "0.451"
+          ],
+          [
+            "旧28px*",
+            "+0.1488 [0.1416,0.1563]",
+            "+0.2836 [0.2737,0.2932]",
+            "+0.3425 [0.3319,0.3529]",
+            "−0.0899",
+            "0.430"
+          ]
+        ]
+      },
+      "calculation": [
+        "模型实现的音频条件地理信息估计为D_Geo(V)−D_Geo(VA)，文本和联合证据同理；这些是固定模型的配对风险差，不冒充Bayes最优条件互信息。",
+        "交互J=D(VA)+D(VT)−D(V)−D(VAT)；正值表示联合收益超过两个单独收益之和，负值表示重叠、替代或次加性。",
+        "顺序无关分配采用φ_A=0.5[(D_V−D_VA)+(D_VT−D_VAT)]和对应φ_T，逐样本严格满足φ_A+φ_T=D_V−D_VAT；最大守恒误差为0。",
+        "正确配对特异性由D(错配)−D(正确配对)计算，与相对V的净效用分开报告。",
+        "每个均值置信区间使用2,000次按地点成对重采样；所有条件使用相同分析定义。"
+      ],
+      "findings": [
+        "视觉清晰时，音频只提供较小正增量，文本单独产生显著负迁移；视觉强模糊后，两种辅助模态均转为稳定正贡献，说明模态价值是状态依赖而非固定权重。",
+        "Clean中的交互为+0.0479，而Blur-10为−0.0752：清晰视觉下A/T联合可抵消部分单模态问题；视觉证据丢失后A和T都有效但其收益部分重叠。",
+        "Blur-10中正确音频相对错配音频优势+0.1048，正确联合证据相对双错配+0.4168，说明风险下降依赖地点对应内容。",
+        "音频增益与KL Rate在Blur-10中相关0.451、Clean中仅0.008；当前Rate会响应部分视觉证据缺口，但并不等同于地理价值。",
+        "这些结果支持继续发展GeoDist诱导的条件地理信息，而不支持预设固定模态权重或由退化标签驱动的门控。"
+      ],
+      "limits": [
+        "Blur-10仍是人工诊断锚点；正式结论需要连续退化曲线、未见退化族和真实质量变化。",
+        "旧28px把宽幅街景缩为正方形，混合了分辨率损失与几何形变，因此不得用于最终鲁棒性结论。",
+        "目前只有一个训练随机种子，且分析基于固定学习模型；它估计模型实现的决策信息，不是总体Bayes条件互信息。",
+        "交互J是GeoDist集合函数交互，不未经额外冗余定义就称为严格PID synergy。"
+      ],
+      "files": [
+        "experiments/pid_omni/analyze_conditional_geographic_information.py",
+        "experiments/pid_omni/CORRUPTION_PROTOCOL.md",
+        "experiments/pid_omni/multimodal_corruptions.py",
+        "experiments/pid_omni/runs/geocrd_v2_full/conditional_geographic_information_e6/summary.json",
+        "experiments/pid_omni/runs/geocrd_v2_full/conditional_geographic_information_e6/REPORT.md"
+      ]
     }
   ]
 }
