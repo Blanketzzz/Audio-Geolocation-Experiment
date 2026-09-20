@@ -164,12 +164,15 @@ def evidence_control_progress():
 
 
 def ablation_progress(processes):
-    variants = (
-        "native_head", "deterministic_router", "no_conditioning",
-        "no_rate", "nll_only", "full",
-    )
+    variants = ("full", "deterministic_router", "no_conditioning", "no_rate")
+    roots = {
+        "full": RD_ROOT / "geocrd_v2_full",
+        "deterministic_router": RD_ROOT / "geocrd_ablation_e1_deterministic_router",
+        "no_conditioning": RD_ROOT / "geocrd_ablation_e1_no_conditioning",
+        "no_rate": RD_ROOT / "geocrd_ablation_e1_no_rate",
+    }
     command_text = " ".join(item["command"] for item in processes)
-    history = read_json(RD_ROOT / "geocrd_ablation_convergence.json", {}) or {}
+    history = read_json(RD_ROOT / "geocrd_mainline_convergence.json", {}) or {}
     rows = []
     total_first_steps = 0
     completed_first_steps = 0
@@ -177,14 +180,14 @@ def ablation_progress(processes):
     current_phase = None
     current_condition = None
     for variant in variants:
-        root = RD_ROOT / f"geocrd_ablation_e1_{variant}"
+        root = roots[variant]
         config = read_json(root / "run_config.json", {}) or {}
         train_samples = int(config.get("train_samples", 62790) or 62790)
         batch_size = int(config.get("batch_size", 4) or 4)
         per_epoch = math.ceil(train_samples / batch_size)
         logs = tail_jsonl(root / "train.jsonl", 300)
         step = int(logs[-1].get("global_step", 0)) if logs else 0
-        variant_commands = [item["command"] for item in processes if f"geocrd_ablation_e1_{variant}" in item["command"]]
+        variant_commands = [item["command"] for item in processes if root.name in item["command"]]
         running = bool(variant_commands)
         phase = None
         condition = None
@@ -290,7 +293,7 @@ def build_progress():
         phase = ablations.get("current_phase") or "运行"
         condition = ablations.get("current_condition")
         suffix = f" · {condition}" if condition else ""
-        detail = f"{ablations['current']} · {phase}{suffix} · 累计{row['epoch_equivalent']:.2f} epochs · {ablations['converged']}/6已收敛"
+        detail = f"{ablations['current']} · {phase}{suffix} · 累计{row['epoch_equivalent']:.2f} epochs · {ablations['converged']}/{ablations['total_variants']}已收敛"
 
     phases = [
         {"name": "RD预算筛选", "state": "done" if rd_done else "active"},
