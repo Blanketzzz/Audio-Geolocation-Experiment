@@ -69,6 +69,14 @@ def mean_task_metric(rows, key):
     return sum(values) / len(values) if values else None
 
 
+def line_count(path: Path):
+    try:
+        with path.open("rb") as handle:
+            return sum(1 for _ in handle)
+    except OSError:
+        return 0
+
+
 def process_state():
     matches = []
     for entry in Path("/proc").iterdir():
@@ -292,6 +300,11 @@ def utility_progress(processes):
             if gain is not None:
                 results.append({"condition": condition_name, "gain": float(gain)})
         degraded = [item["gain"] for item in results if item["condition"] != "clean"]
+        active_records = 0
+        active_expected = 1024
+        if condition and not (root / f"screen512_{condition}" / "summary.json").exists():
+            active_dir = root / f"screen512_{condition}"
+            active_records = sum(line_count(active_dir / f"{coalition}.jsonl") for coalition in ("V", "VA"))
         rows.append({
             "label": label,
             "run": root.name,
@@ -304,6 +317,9 @@ def utility_progress(processes):
             "condition": condition,
             "evaluated": len(results),
             "expected_evaluations": len(UTILITY_CONDITIONS),
+            "active_records": active_records,
+            "active_expected": active_expected,
+            "active_percent": 100 * min(active_records, active_expected) / active_expected if condition else None,
             "degraded_mean_gain": sum(degraded) / len(degraded) if degraded else None,
             "results": results,
             "utility_weight": config.get("utility_weight"),
@@ -410,7 +426,8 @@ def build_progress():
             row = next(item for item in utility["runs"] if item["label"] == utility["current"])
             stage = "条件效用跨种子复现"
             suffix = f" · {utility['current_condition']}" if utility["current_condition"] else ""
-            detail = f"{utility['current']} · {utility['current_phase']}{suffix} · {row['step']}/{row['expected']}步 · {row['evaluated']}/5条件"
+            partial = f" · 当前条件{row['active_percent']:.1f}%" if row.get("active_percent") is not None else ""
+            detail = f"{utility['current']} · {utility['current_phase']}{suffix} · {row['step']}/{row['expected']}步 · {row['evaluated']}/5条件{partial}"
         elif utility["complete"]:
             stage, detail = "条件效用复现完成", "init 42/43训练与五条件评估均已完成"
         else:
