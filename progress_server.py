@@ -19,6 +19,17 @@ WEB_ROOT = Path(__file__).resolve().parent
 EXP_ROOT = WEB_ROOT.parent / "experiments" / "pid_omni"
 RUN_ROOT = EXP_ROOT / "runs" / "geocrd_v2_full"
 RD_ROOT = EXP_ROOT / "runs"
+UTILITY_RUNS = {
+    "utility · init 42": RD_ROOT / "geocrd_hybrid_utility_seed42",
+    "utility · init 43": RD_ROOT / "geocrd_hybrid_utility_init43",
+}
+UTILITY_CONDITIONS = (
+    "clean",
+    "vision_lowres_24.1062",
+    "vision_blur_4.65623",
+    "vision_dark_0.0676037",
+    "vision_occlusion_0.35",
+)
 
 
 def read_json(path: Path, default=None):
@@ -49,6 +60,15 @@ def mean(rows, key):
     return sum(values) / len(values) if values else None
 
 
+def mean_task_metric(rows, key):
+    values = [
+        float(row["task_metrics"][key])
+        for row in rows
+        if (row.get("task_metrics") or {}).get(key) is not None
+    ]
+    return sum(values) / len(values) if values else None
+
+
 def process_state():
     matches = []
     for entry in Path("/proc").iterdir():
@@ -56,9 +76,16 @@ def process_state():
             continue
         try:
             cmd = (entry / "cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8")
+            executable = (entry / "exe").resolve().name
         except (OSError, UnicodeDecodeError):
             continue
-        if ("geocrd_v2_full" in cmd or "geocrd_ablation_e1_" in cmd) and (
+        if not executable.startswith("python"):
+            continue
+        if (
+            "geocrd_v2_full" in cmd
+            or "geocrd_ablation_e1_" in cmd
+            or "geocrd_hybrid_utility_" in cmd
+        ) and (
             "train_geocrd_v2_classification.py" in cmd
             or "evaluate_geocrd_v2_classification.py" in cmd
             or "evaluate_geocrd_v2_evidence_controls.py" in cmd
@@ -235,20 +262,94 @@ def ablation_progress(processes):
     }
 
 
+def utility_progress(processes):
+    rows = []
+    current = None
+    current_phase = None
+    current_condition = None
+    for label, root in UTILITY_RUNS.items():
+        config = read_json(root / "run_config.json", {}) or {}
+        logs = tail_jsonl(root / "train.jsonl", 300)
+        step = int(logs[-1].get("global_step", 0)) if logs else 0
+        expected = int(config.get("max_steps", 1500) or 1500)
+        commands = [item["command"] for item in processes if root.name in item["command"]]
+        phase = None
+        condition = None
+        if commands:
+            joined = " ".join(commands)
+            phase = "验证" if "evaluate_geocrd_v2_classification.py" in joined else "训练"
+            if phase == "验证":
+                for candidate in UTILITY_CONDITIONS:
+                    value = candidate.replace("vision_", "vision:", 1).replace("_", ":", 1)
+                    if f"--condition {value}" in joined:
+                        condition = candidate
+                        break
+            current, current_phase, current_condition = label, phase, condition
+        results = []
+        for condition_name in UTILITY_CONDITIONS:
+            summary = read_json(root / f"screen512_{condition_name}" / "summary.json", {}) or {}
+            gain = (summary.get("conditional_gains", {}).get("A_given_V", {}) or {}).get("mean")
+            if gain is not None:
+                results.append({"condition": condition_name, "gain": float(gain)})
+        degraded = [item["gain"] for item in results if item["condition"] != "clean"]
+        rows.append({
+            "label": label,
+            "run": root.name,
+            "step": step,
+            "expected": expected,
+            "percent": 100 * min(step, expected) / expected if expected else 0,
+            "trained": (root / "latest.pt").exists() and step >= expected,
+            "running": bool(commands),
+            "phase": phase,
+            "condition": condition,
+            "evaluated": len(results),
+            "expected_evaluations": len(UTILITY_CONDITIONS),
+            "degraded_mean_gain": sum(degraded) / len(degraded) if degraded else None,
+            "results": results,
+            "utility_weight": config.get("utility_weight"),
+            "utility_margin": config.get("utility_margin"),
+            "init_seed": config.get("init_seed"),
+            "data_seed": config.get("data_seed"),
+            "corruption_seed": config.get("corruption_seed"),
+        })
+    return {
+        "runs": rows,
+        "current": current,
+        "current_phase": current_phase,
+        "current_condition": current_condition,
+        "complete": all(row["evaluated"] == len(UTILITY_CONDITIONS) for row in rows),
+        "active_or_started": any(row["step"] or row["evaluated"] for row in rows),
+    }
+
+
 def build_progress():
-    config = read_json(RUN_ROOT / "run_config.json", {}) or {}
-    rows = tail_jsonl(RUN_ROOT / "train.jsonl", 300)
+    processes = process_state()
+    active_utility_root = next(
+        (root for root in UTILITY_RUNS.values()
+         if any(root.name in item["command"] for item in processes)),
+        None,
+    )
+    latest_utility_root = max(
+        (root for root in UTILITY_RUNS.values() if (root / "train.jsonl").exists()),
+        key=lambda root: (root / "train.jsonl").stat().st_mtime,
+        default=None,
+    )
+    display_root = active_utility_root or latest_utility_root or RUN_ROOT
+    config = read_json(display_root / "run_config.json", {}) or {}
+    rows = tail_jsonl(display_root / "train.jsonl", 300)
     latest = rows[-1] if rows else {}
     train_samples = int(config.get("train_samples", 0) or 0)
     batch_size = int(config.get("batch_size", 1) or 1)
     batches_per_epoch = math.ceil(train_samples / batch_size) if train_samples else 0
     target_epochs = int(config.get("epochs", 6) or 6)
-    total_batches = batches_per_epoch * target_epochs
+    max_steps = int(config.get("max_steps", 0) or 0)
+    total_batches = max_steps or batches_per_epoch * target_epochs
+    if max_steps:
+        batches_per_epoch = max_steps
     global_step = int(latest.get("global_step", 0) or 0)
     seconds_per_batch = mean(rows, "seconds")
     remaining_batches = max(0, total_batches - global_step)
     train_eta_seconds = remaining_batches * seconds_per_batch if seconds_per_batch else None
-    processes = process_state()
     command_text = " ".join(item["command"] for item in processes)
 
     epoch3_done = (RUN_ROOT / "checkpoint_epoch3.pt").exists()
@@ -280,6 +381,7 @@ def build_progress():
 
     causal = evidence_control_progress()
     ablations = ablation_progress(processes)
+    utility = utility_progress(processes)
     if causal["complete"]:
         stage, detail = "因果对照完成", "三条件×五阶段全量错配验证已完成"
     elif any("evaluate_geocrd_v2_evidence_controls.py" in item["command"] for item in processes):
@@ -295,13 +397,32 @@ def build_progress():
         suffix = f" · {condition}" if condition else ""
         detail = f"{ablations['current']} · {phase}{suffix} · 累计{row['epoch_equivalent']:.2f} epochs · {ablations['converged']}/{ablations['total_variants']}已收敛"
 
-    phases = [
-        {"name": "RD预算筛选", "state": "done" if rd_done else "active"},
+    if utility["active_or_started"]:
+        run42, run43 = utility["runs"]
+        phases = [
+            {"name": "效用目标实现", "state": "done"},
+            {"name": "init 42训练", "state": "done" if run42["trained"] else ("active" if run42["running"] else "pending")},
+            {"name": "init 42五条件", "state": "done" if run42["evaluated"] == 5 else ("active" if run42["trained"] else "pending")},
+            {"name": "init 43复现", "state": "done" if run43["trained"] else ("active" if run43["running"] else "pending")},
+            {"name": "跨种子结论", "state": "done" if utility["complete"] else "pending"},
+        ]
+        if utility["current"]:
+            row = next(item for item in utility["runs"] if item["label"] == utility["current"])
+            stage = "条件效用跨种子复现"
+            suffix = f" · {utility['current_condition']}" if utility["current_condition"] else ""
+            detail = f"{utility['current']} · {utility['current_phase']}{suffix} · {row['step']}/{row['expected']}步 · {row['evaluated']}/5条件"
+        elif utility["complete"]:
+            stage, detail = "条件效用复现完成", "init 42/43训练与五条件评估均已完成"
+        else:
+            stage, detail = "条件效用验证等待", f"init 42完成{run42['evaluated']}/5条件；init 43完成{run43['evaluated']}/5条件"
+    else:
+        phases = [
+            {"name": "RD预算筛选", "state": "done" if rd_done else "active"},
         {"name": "epoch 1–3全量训练", "state": "done" if epoch3_done else ("active" if global_step else "pending")},
         {"name": "epoch 3完整验证", "state": "done" if len(eval3) >= expected_evals else ("active" if epoch3_done else "pending")},
         {"name": "epoch 4–6续训", "state": "done" if epoch6_done else ("active" if epoch3_done and "train_geocrd" in command_text else "pending")},
-        {"name": "epoch 6最终验证", "state": "done" if len(eval6) >= expected_evals else ("active" if epoch6_done else "pending")},
-    ]
+            {"name": "epoch 6最终验证", "state": "done" if len(eval6) >= expected_evals else ("active" if epoch6_done else "pending")},
+        ]
 
     return {
         "updated_at": time.time(),
@@ -318,15 +439,16 @@ def build_progress():
             "total_batches": total_batches,
             "percent": 100 * global_step / total_batches if total_batches else 0,
             "distortion": latest.get("distortion"),
-            "normalized_nll": latest.get("normalized_nll"),
-            "normalized_energy": latest.get("normalized_energy"),
+            "normalized_nll": latest.get("normalized_nll", (latest.get("task_metrics") or {}).get("normalized_nll")),
+            "normalized_energy": latest.get("normalized_energy", (latest.get("task_metrics") or {}).get("normalized_energy")),
             "rate": latest.get("total_rate"),
             "ema_rate": latest.get("ema_rate"),
             "rate_budget": config.get("rate_budget"),
             "beta": latest.get("beta"),
             "window_distortion": mean(rows, "distortion"),
-            "window_nll": mean(rows, "normalized_nll"),
+            "window_nll": mean(rows, "normalized_nll") or mean_task_metric(rows, "normalized_nll"),
             "window_rate": mean(rows, "total_rate"),
+            "window_utility_loss": mean(rows, "utility_loss"),
             "seconds_per_batch": seconds_per_batch,
             "train_eta_seconds": train_eta_seconds,
             "coalition": latest.get("coalition"),
@@ -335,6 +457,7 @@ def build_progress():
         "validation": {"epoch3": eval3, "epoch6": eval6, "expected": expected_evals},
         "evidence_controls": causal,
         "ablations": ablations,
+        "utility": utility,
         "gpus": gpu_state(),
         "processes": processes,
     }
