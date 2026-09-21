@@ -23,6 +23,8 @@ UTILITY_RUNS = {
     "utility · init 42": RD_ROOT / "geocrd_hybrid_utility_seed42",
     "utility · init 43": RD_ROOT / "geocrd_hybrid_utility_init43",
 }
+FORMAL_UTILITY_RUN = RD_ROOT / "geocrd_hybrid_utility_full_seed42"
+FORMAL_HISTORY = RD_ROOT / "geocrd_hybrid_utility_full_seed42_convergence.json"
 UTILITY_CONDITIONS = (
     "clean",
     "vision_lowres_24.1062",
@@ -341,12 +343,12 @@ def utility_progress(processes):
 def build_progress():
     processes = process_state()
     active_utility_root = next(
-        (root for root in UTILITY_RUNS.values()
+        (root for root in (*UTILITY_RUNS.values(), FORMAL_UTILITY_RUN)
          if any(root.name in item["command"] for item in processes)),
         None,
     )
     latest_utility_root = max(
-        (root for root in UTILITY_RUNS.values() if (root / "train.jsonl").exists()),
+        (root for root in (*UTILITY_RUNS.values(), FORMAL_UTILITY_RUN) if (root / "train.jsonl").exists()),
         key=lambda root: (root / "train.jsonl").stat().st_mtime,
         default=None,
     )
@@ -435,11 +437,35 @@ def build_progress():
     else:
         phases = [
             {"name": "RD预算筛选", "state": "done" if rd_done else "active"},
-        {"name": "epoch 1–3全量训练", "state": "done" if epoch3_done else ("active" if global_step else "pending")},
-        {"name": "epoch 3完整验证", "state": "done" if len(eval3) >= expected_evals else ("active" if epoch3_done else "pending")},
-        {"name": "epoch 4–6续训", "state": "done" if epoch6_done else ("active" if epoch3_done and "train_geocrd" in command_text else "pending")},
+            {"name": "epoch 1–3全量训练", "state": "done" if epoch3_done else ("active" if global_step else "pending")},
+            {"name": "epoch 3完整验证", "state": "done" if len(eval3) >= expected_evals else ("active" if epoch3_done else "pending")},
+            {"name": "epoch 4–6续训", "state": "done" if epoch6_done else ("active" if epoch3_done and "train_geocrd" in command_text else "pending")},
             {"name": "epoch 6最终验证", "state": "done" if len(eval6) >= expected_evals else ("active" if epoch6_done else "pending")},
         ]
+
+    formal_history = read_json(FORMAL_HISTORY, {}) or {}
+    formal_commands = [item["command"] for item in processes if FORMAL_UTILITY_RUN.name in item["command"]]
+    formal_checkpoint_epochs = sorted(
+        int(path.stem.replace("checkpoint_epoch", ""))
+        for path in FORMAL_UTILITY_RUN.glob("checkpoint_epoch*.pt")
+        if path.stem.replace("checkpoint_epoch", "").isdigit()
+    )
+    if formal_commands:
+        formal_text = " ".join(formal_commands)
+        formal_phase = "固定验证集评估" if "evaluate_geocrd_v2_classification.py" in formal_text else "完整epoch训练"
+        current_epoch = int(latest.get("epoch", 0)) + 1 if latest else 1
+        stage = "新目标正式收敛训练"
+        detail = f"epoch {current_epoch} · {formal_phase} · {global_step:,}个累计batch · 已完成{len(formal_history.get('epochs', []))}轮收敛评估"
+        phases = [
+            {"name": "短程跨种子验证", "state": "done"},
+            {"name": "完整epoch训练", "state": "active" if formal_phase == "完整epoch训练" else "done"},
+            {"name": "固定验证集评估", "state": "active" if formal_phase == "固定验证集评估" else "pending"},
+            {"name": "patience收敛判断", "state": "pending"},
+            {"name": "最佳检查点确定", "state": "pending"},
+        ]
+    elif formal_history.get("status") in {"converged", "max_epochs"}:
+        stage = "新目标正式训练完成"
+        detail = f"{formal_history['status']} · best epoch {formal_history.get('best_epoch')} · score {formal_history.get('best_score')}"
 
     return {
         "updated_at": time.time(),
