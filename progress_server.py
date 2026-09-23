@@ -25,6 +25,14 @@ UTILITY_RUNS = {
 }
 FORMAL_UTILITY_RUN = RD_ROOT / "geocrd_hybrid_utility_full_seed42"
 FORMAL_HISTORY = RD_ROOT / "geocrd_hybrid_utility_full_seed42_convergence.json"
+RATEACTIVE_RUN = RD_ROOT / "geocrd_rateactive_full_utility_seed42"
+RATEACTIVE_CONDITIONS = (
+    ("clean", "Clean", "clean"),
+    ("vision_lowres_24.1062", "Low-resolution", "vision:lowres:24.1062"),
+    ("vision_blur_4.65623", "Blur", "vision:blur:4.65623"),
+    ("vision_dark_0.0676037", "Dark", "vision:dark:0.0676037"),
+    ("vision_occlusion_0.35", "Occlusion", "vision:occlusion:0.35"),
+)
 UTILITY_CONDITIONS = (
     "clean",
     "vision_lowres_24.1062",
@@ -95,6 +103,7 @@ def process_state():
             "geocrd_v2_full" in cmd
             or "geocrd_ablation_e1_" in cmd
             or "geocrd_hybrid_utility_" in cmd
+            or "geocrd_rateactive_" in cmd
         ) and (
             "train_geocrd_v2_classification.py" in cmd
             or "evaluate_geocrd_v2_classification.py" in cmd
@@ -340,15 +349,66 @@ def utility_progress(processes):
     }
 
 
+
+def rateactive_progress(processes):
+    root = RATEACTIVE_RUN
+    config = read_json(root / "run_config.json", {}) or {}
+    logs = tail_jsonl(root / "train.jsonl", 300)
+    latest = logs[-1] if logs else {}
+    expected_steps = int(config.get("max_steps", 1500) or 1500)
+    step = int(latest.get("global_step", 0) or 0)
+    commands = [item["command"] for item in processes if root.name in item["command"]]
+    command_text = " ".join(commands)
+    current_condition = None
+    for key, _label, cli in RATEACTIVE_CONDITIONS:
+        if f"--condition {cli}" in command_text:
+            current_condition = key
+            break
+    conditions = []
+    evaluated = 0
+    for key, label, cli in RATEACTIVE_CONDITIONS:
+        output = root / f"screen1024_{key}"
+        summary = read_json(output / "summary.json", {}) or {}
+        done = bool(summary)
+        evaluated += int(done)
+        processed = sum(line_count(output / f"{coalition}.jsonl") for coalition in ("V", "VA", "VT", "VAT"))
+        gains = summary.get("conditional_gains", {}) if done else {}
+        conditions.append({
+            "key": key, "label": label, "cli": cli,
+            "processed": processed, "expected": 4096,
+            "percent": 100 * min(processed, 4096) / 4096,
+            "done": done,
+            "a_given_v": (gains.get("A_given_V") or {}).get("mean"),
+            "a_given_vt": (gains.get("A_given_VT") or {}).get("mean"),
+        })
+    training_done = (root / "latest.pt").exists() and step >= expected_steps
+    running = bool(commands)
+    return {
+        "run": root.name,
+        "training_step": step, "training_expected": expected_steps,
+        "training_percent": 100 * min(step, expected_steps) / expected_steps,
+        "training_done": training_done, "running": running,
+        "phase": "评估" if "evaluate_geocrd_v2_classification.py" in command_text else ("训练" if running else None),
+        "current_condition": current_condition,
+        "conditions": conditions, "evaluated": evaluated,
+        "expected_evaluations": len(RATEACTIVE_CONDITIONS),
+        "complete": training_done and evaluated == len(RATEACTIVE_CONDITIONS),
+        "overall_percent": 100 * ((1 if training_done else min(step, expected_steps) / expected_steps) + sum(item["percent"] / 100 for item in conditions)) / (1 + len(RATEACTIVE_CONDITIONS)),
+        "rate_budget": config.get("rate_budget"), "ema_rate": latest.get("ema_rate"),
+        "beta": latest.get("beta"), "distortion": latest.get("distortion"),
+        "utility_loss": latest.get("utility_loss"),
+    }
+
+
 def build_progress():
     processes = process_state()
     active_utility_root = next(
-        (root for root in (*UTILITY_RUNS.values(), FORMAL_UTILITY_RUN)
+        (root for root in (*UTILITY_RUNS.values(), FORMAL_UTILITY_RUN, RATEACTIVE_RUN)
          if any(root.name in item["command"] for item in processes)),
         None,
     )
     latest_utility_root = max(
-        (root for root in (*UTILITY_RUNS.values(), FORMAL_UTILITY_RUN) if (root / "train.jsonl").exists()),
+        (root for root in (*UTILITY_RUNS.values(), FORMAL_UTILITY_RUN, RATEACTIVE_RUN) if (root / "train.jsonl").exists()),
         key=lambda root: (root / "train.jsonl").stat().st_mtime,
         default=None,
     )
@@ -467,6 +527,26 @@ def build_progress():
         stage = "新目标正式训练完成"
         detail = f"{formal_history['status']} · best epoch {formal_history.get('best_epoch')} · score {formal_history.get('best_score')}"
 
+    rateactive = rateactive_progress(processes)
+    if rateactive["training_step"] or rateactive["evaluated"]:
+        phases = [
+            {"name": "无旁路训练", "state": "done" if rateactive["training_done"] else ("active" if rateactive["phase"] == "训练" else "pending")},
+            {"name": "五条件同模型评估", "state": "done" if rateactive["complete"] else ("active" if rateactive["phase"] == "评估" else "pending")},
+            {"name": "Rate有效性判断", "state": "done" if rateactive["complete"] else "pending"},
+            {"name": "预算/结构决策", "state": "pending"},
+            {"name": "正式全量重训", "state": "pending"},
+        ]
+        if rateactive["running"]:
+            condition = next((x["label"] for x in rateactive["conditions"] if x["key"] == rateactive["current_condition"]), "—")
+            stage = "Rate-active无旁路筛选"
+            detail = f"{rateactive['phase']} · {condition} · 已完成{rateactive['evaluated']}/5条件"
+        elif rateactive["complete"]:
+            stage = "Rate-active筛选评估完成"
+            detail = "五条件已完成，等待Rate有效性与模态增益联合判断"
+        elif rateactive["training_done"]:
+            stage = "Rate-active筛选等待评估"
+            detail = f"1,500步训练完成 · 已评估{rateactive['evaluated']}/5条件"
+
     return {
         "updated_at": time.time(),
         "running": bool(processes),
@@ -501,6 +581,7 @@ def build_progress():
         "evidence_controls": causal,
         "ablations": ablations,
         "utility": utility,
+        "rateactive": rateactive,
         "gpus": gpu_state(),
         "processes": processes,
     }
