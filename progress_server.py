@@ -25,7 +25,7 @@ UTILITY_RUNS = {
 }
 FORMAL_UTILITY_RUN = RD_ROOT / "geocrd_hybrid_utility_full_seed42"
 FORMAL_HISTORY = RD_ROOT / "geocrd_hybrid_utility_full_seed42_convergence.json"
-RATEACTIVE_RUN = RD_ROOT / "geocrd_rateactive_full_utility_seed42"
+RATEACTIVE_RUN = RD_ROOT / "geocrd_rateactive_residual_utility_seed42"
 RATEACTIVE_CONDITIONS = (
     ("clean", "Clean", "clean"),
     ("vision_lowres_24.1062", "Low-resolution", "vision:lowres:24.1062"),
@@ -530,7 +530,7 @@ def build_progress():
     rateactive = rateactive_progress(processes)
     if rateactive["training_step"] or rateactive["evaluated"]:
         phases = [
-            {"name": "无旁路训练", "state": "done" if rateactive["training_done"] else ("active" if rateactive["phase"] == "训练" else "pending")},
+            {"name": "Rate约束残差训练", "state": "done" if rateactive["training_done"] else ("active" if rateactive["phase"] == "训练" else "pending")},
             {"name": "五条件同模型评估", "state": "done" if rateactive["complete"] else ("active" if rateactive["phase"] == "评估" else "pending")},
             {"name": "Rate有效性判断", "state": "done" if rateactive["complete"] else "pending"},
             {"name": "预算/结构决策", "state": "pending"},
@@ -538,7 +538,7 @@ def build_progress():
         ]
         if rateactive["running"]:
             condition = next((x["label"] for x in rateactive["conditions"] if x["key"] == rateactive["current_condition"]), "—")
-            stage = "Rate-active无旁路筛选"
+            stage = "Rate约束残差筛选"
             detail = f"{rateactive['phase']} · {condition} · 已完成{rateactive['evaluated']}/5条件"
         elif rateactive["complete"]:
             stage = "Rate-active筛选评估完成"
