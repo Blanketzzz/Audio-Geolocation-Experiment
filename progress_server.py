@@ -25,7 +25,22 @@ UTILITY_RUNS = {
 }
 FORMAL_UTILITY_RUN = RD_ROOT / "geocrd_hybrid_utility_full_seed42"
 FORMAL_HISTORY = RD_ROOT / "geocrd_hybrid_utility_full_seed42_convergence.json"
-RATEACTIVE_RUN = RD_ROOT / "geocrd_rateactive_residual_utility_seed42"
+TEMPORAL_FIXED_RUN = RD_ROOT / "geocrd_residual_no_rate_audio_specificity_seed42"
+TEMPORAL_FIXED_EXPECTED = 240
+QWEN_ATTRIBUTION_ROOT = WEB_ROOT.parent / "experiments" / "scale_modality_probe" / "runs" / "qwen_audio_attribution"
+QWEN_ATTRIBUTION_EXPECTED = 3000
+RATEACTIVE_RUN = RD_ROOT / "geocrd_residual_rate003_full_utility5_seed42"
+VISUAL_ANCHOR_RUN = RD_ROOT / "geocrd_visual_anchor_audio_seed42"
+VISUAL_ANCHOR_DIFFERENCE_RUN = RD_ROOT / "geocrd_visual_anchor_audio_difference_seed42"
+VISUAL_ANCHOR_DECOMPOSED_RUN = RD_ROOT / "geocrd_visual_anchor_audio_decomposed_seed42"
+VISUAL_ANCHOR_SOURCE_CROSS_R0_RUN = RD_ROOT / "geocrd_visual_anchor_audio_decomposed_source_cross_r0_seed42"
+VISUAL_ANCHOR_SOURCE_CROSS_R0_SEED43_RUN = RD_ROOT / "geocrd_visual_anchor_audio_decomposed_source_cross_r0_seed43"
+VISUAL_ANCHOR_SOURCE_CROSS_R0_SEED44_RUN = RD_ROOT / "geocrd_visual_anchor_audio_decomposed_source_cross_r0_seed44"
+VISUAL_ANCHOR_SOURCE_CROSS_R0_SEED45_RUN = RD_ROOT / "geocrd_visual_anchor_audio_decomposed_source_cross_r0_seed45"
+VISUAL_ANCHOR_SOURCE_CROSS_R0_SEED46_RUN = RD_ROOT / "geocrd_visual_anchor_audio_decomposed_source_cross_r0_seed46"
+VISUAL_ANCHOR_FIVE_SEED_ANALYSIS = EXP_ROOT / "analysis" / "source_cross_r0_five_seed_hierarchical_bootstrap.json"
+VISUAL_ANCHOR_HEAD_RUN = RD_ROOT / "geocrd_visual_anchor_head_seed42"
+ENCODER_ATTRIBUTION_ROOT = QWEN_ATTRIBUTION_ROOT.parent / "encoder_attribution"
 RATEACTIVE_CONDITIONS = (
     ("clean", "Clean", "clean"),
     ("vision_lowres_24.1062", "Low-resolution", "vision:lowres:24.1062"),
@@ -99,11 +114,19 @@ def process_state():
             continue
         if not executable.startswith("python"):
             continue
+        if "extract_qwen_audio_attribution.py" in cmd:
+            matches.append({"pid": int(entry.name), "command": cmd.strip()})
+            continue
         if (
             "geocrd_v2_full" in cmd
             or "geocrd_ablation_e1_" in cmd
             or "geocrd_hybrid_utility_" in cmd
             or "geocrd_rateactive_" in cmd
+            or RATEACTIVE_RUN.name in cmd
+            or "temporal_fixed240_" in cmd
+            or "geocrd_query_residual" in cmd
+            or "geocrd_visual_anchor_audio" in cmd
+            or "geocrd_visual_anchor_head" in cmd
         ) and (
             "train_geocrd_v2_classification.py" in cmd
             or "evaluate_geocrd_v2_classification.py" in cmd
@@ -355,7 +378,13 @@ def rateactive_progress(processes):
     config = read_json(root / "run_config.json", {}) or {}
     logs = tail_jsonl(root / "train.jsonl", 300)
     latest = logs[-1] if logs else {}
-    expected_steps = int(config.get("max_steps", 1500) or 1500)
+    expected_steps = int(config.get("max_steps", 0) or 0)
+    if expected_steps <= 0:
+        train_samples = int(config.get("train_samples", 0) or 0)
+        global_batch = int(config.get("global_batch_size", config.get("batch_size", 1)) or 1)
+        epochs = int(config.get("epochs", 1) or 1)
+        expected_steps = ((train_samples + global_batch - 1) // global_batch) * epochs
+    expected_steps = max(1, expected_steps)
     step = int(latest.get("global_step", 0) or 0)
     commands = [item["command"] for item in processes if root.name in item["command"]]
     command_text = " ".join(commands)
@@ -399,6 +428,246 @@ def rateactive_progress(processes):
         "utility_loss": latest.get("utility_loss"),
     }
 
+
+def temporal_fixed_progress(processes):
+    strata = []
+    processed = 0
+    total = 4 * 2 * TEMPORAL_FIXED_EXPECTED
+    for index in range(4):
+        paired_path = TEMPORAL_FIXED_RUN / f"temporal_fixed240_s{index}" / "VA.jsonl"
+        wrong_path = (
+            TEMPORAL_FIXED_RUN / f"temporal_fixed_wrong240_s{index}"
+            / "audio_shuffled" / "VA.jsonl"
+        )
+        paired = min(line_count(paired_path), TEMPORAL_FIXED_EXPECTED)
+        wrong = min(line_count(wrong_path), TEMPORAL_FIXED_EXPECTED)
+        processed += paired + wrong
+        strata.append({
+            "stratum": index,
+            "paired": paired,
+            "wrong": wrong,
+            "expected": TEMPORAL_FIXED_EXPECTED,
+            "done": paired >= TEMPORAL_FIXED_EXPECTED and wrong >= TEMPORAL_FIXED_EXPECTED,
+        })
+    commands = [
+        item["command"] for item in processes if "temporal_fixed240_" in item["command"]
+    ]
+    started = processed > 0 or bool(commands)
+    return {
+        "strata": strata,
+        "processed": processed,
+        "total": total,
+        "percent": 100 * processed / total if total else 0,
+        "running": bool(commands),
+        "started": started,
+        "complete": processed >= total,
+    }
+
+
+def qwen_attribution_progress(processes):
+    shards = []
+    processed = failures = 0
+    for index in range(4):
+        status = read_json(QWEN_ATTRIBUTION_ROOT / f"shard{index}.pt.status.json", {}) or {}
+        completed = int(status.get("completed", 0) or 0)
+        failed = int(status.get("failures", 0) or 0)
+        processed += completed
+        failures += failed
+        shards.append({
+            "shard": index, "completed": completed, "expected": 750,
+            "failures": failed, "done": completed >= 750,
+        })
+    commands = [
+        item["command"] for item in processes
+        if "extract_qwen_audio_attribution.py" in item["command"]
+    ]
+    summary = read_json(ENCODER_ATTRIBUTION_ROOT / "summary.json", {}) or {}
+    probe_complete = bool(summary.get("representations"))
+    common = ((summary.get("protocol") or {}).get("population") or {}).get("population_size")
+    started = processed > 0 or bool(commands)
+    return {
+        "shards": shards,
+        "processed": processed,
+        "total": QWEN_ATTRIBUTION_EXPECTED,
+        "percent": 100 * processed / QWEN_ATTRIBUTION_EXPECTED,
+        "failures": failures,
+        "running": bool(commands),
+        "started": started,
+        "complete": probe_complete,
+        "common_population": common,
+        "summary": summary,
+    }
+
+
+def visual_anchor_progress(processes):
+    replication_roots = (
+        VISUAL_ANCHOR_SOURCE_CROSS_R0_SEED46_RUN,
+        VISUAL_ANCHOR_SOURCE_CROSS_R0_SEED45_RUN,
+        VISUAL_ANCHOR_SOURCE_CROSS_R0_SEED44_RUN,
+        VISUAL_ANCHOR_SOURCE_CROSS_R0_SEED43_RUN,
+        VISUAL_ANCHOR_SOURCE_CROSS_R0_RUN,
+    )
+    active_replication = next(
+        (candidate for candidate in replication_roots if any(
+            candidate.name in item["command"] for item in processes
+        )),
+        None,
+    )
+    source_cross_r0_active = any(
+        VISUAL_ANCHOR_SOURCE_CROSS_R0_RUN.name in item["command"] for item in processes
+    )
+    decomposed_active = any(
+        VISUAL_ANCHOR_DECOMPOSED_RUN.name in item["command"] for item in processes
+    )
+    difference_active = any(
+        VISUAL_ANCHOR_DIFFERENCE_RUN.name in item["command"] for item in processes
+    )
+    root = (
+        active_replication
+        if active_replication is not None
+        else (
+        next(
+            (candidate for candidate in replication_roots if (candidate / "run_config.json").exists()),
+            None,
+        )
+        or VISUAL_ANCHOR_SOURCE_CROSS_R0_RUN
+        )
+        if any((candidate / "run_config.json").exists() for candidate in replication_roots) or active_replication is not None
+        else (
+            VISUAL_ANCHOR_DECOMPOSED_RUN
+            if decomposed_active or (VISUAL_ANCHOR_DECOMPOSED_RUN / "run_config.json").exists()
+            else (
+            VISUAL_ANCHOR_DIFFERENCE_RUN
+            if difference_active or (VISUAL_ANCHOR_DIFFERENCE_RUN / "run_config.json").exists()
+            else VISUAL_ANCHOR_RUN
+            )
+        )
+    )
+    config = read_json(root / "run_config.json", {}) or {}
+    logs = tail_jsonl(root / "train.jsonl", 300)
+    latest = logs[-1] if logs else {}
+    step = int(latest.get("global_step", 0) or 0)
+    expected = int(config.get("max_steps", 0) or 0)
+    head_config = read_json(VISUAL_ANCHOR_HEAD_RUN / "run_config.json", {}) or {}
+    head_logs = tail_jsonl(VISUAL_ANCHOR_HEAD_RUN / "train.jsonl", 300)
+    head_latest = head_logs[-1] if head_logs else {}
+    head_step = int(head_latest.get("global_step", 0) or 0)
+    head_expected = int(head_config.get("max_steps", 0) or 0)
+    commands = [item["command"] for item in processes if root.name in item["command"] or VISUAL_ANCHOR_HEAD_RUN.name in item["command"]]
+    command_text = " ".join(commands)
+    eval_dirs = {
+        "paired": root / "eval_paired_1024",
+        "cyclic": root / "eval_cyclic_1024",
+        "cross_r0": root / "eval_cross_r0_1024",
+    }
+    counts = {
+        "head_v": line_count(VISUAL_ANCHOR_HEAD_RUN / "eval_v_1024" / "V.jsonl"),
+        "paired_v": line_count(eval_dirs["paired"] / "V.jsonl"),
+        "paired_va": line_count(eval_dirs["paired"] / "VA.jsonl"),
+        "cyclic": line_count(eval_dirs["cyclic"] / "VA.jsonl"),
+        "cross_r0": line_count(eval_dirs["cross_r0"] / "VA.jsonl"),
+    }
+    mechanism_dirs = {
+        "paired": root / "mechanism_repr_paired_256",
+        "cyclic": root / "mechanism_repr_cyclic_256",
+        "cross_r0": root / "mechanism_repr_cross_r0_256",
+    }
+    mechanism_counts = {key: line_count(path / "VA.jsonl") for key, path in mechanism_dirs.items()}
+    mechanism_processed = sum(min(value, 256) for value in mechanism_counts.values())
+    mechanism_analysis = read_json(root / "audio_content_mechanism_256.json", {}) or {}
+    analysis = read_json(root / "bridge_analysis_1024.json", {}) or {}
+    multiseed_analysis = read_json(VISUAL_ANCHOR_FIVE_SEED_ANALYSIS, {}) or {}
+    multiseed_gates = multiseed_analysis.get("gates", {})
+    comparisons = analysis.get("comparisons", {})
+    def result(name):
+        row = (comparisons.get(name) or {}).get("geo_distortion_delta") or {}
+        return {"mean": row.get("mean"), "ci": row.get("bootstrap_95ci")}
+    def multiseed_result(name):
+        row = multiseed_gates.get(name) or {}
+        return {
+            "mean": row.get("mean_of_seed_means"),
+            "ci": row.get("hierarchical_bootstrap_95ci"),
+            "positive_seeds": row.get("positive_seeds"),
+        }
+    if "mechanism_repr" in command_text:
+        phase = "音频内容特异性机制诊断"
+    elif mechanism_analysis:
+        phase = (
+            "机制诊断完成 · 内容特异性提升"
+            if root == VISUAL_ANCHOR_DIFFERENCE_RUN
+            else "机制诊断完成 · 融合层信息塌缩"
+        )
+    elif multiseed_gates:
+        phase = "五随机种子稳定性完成"
+    elif analysis:
+        phase = "三道门槛完成"
+    elif root.name in command_text and "evaluate_geocrd_v2_classification.py" in command_text:
+        phase = "固定验证"
+    elif root.name in command_text and "train_geocrd_v2_classification.py" in command_text:
+        phase = (
+            "同来源跨区域反事实训练"
+            if root in replication_roots
+            else (
+                "视觉校准 + 音频创新双路径训练"
+                if root == VISUAL_ANCHOR_DECOMPOSED_RUN
+                else (
+                    "内容差分音频修正训练"
+                    if root == VISUAL_ANCHOR_DIFFERENCE_RUN
+                    else "音频内容修正训练"
+                )
+            )
+        )
+    elif VISUAL_ANCHOR_HEAD_RUN.name in command_text and "evaluate_geocrd_v2_classification.py" in command_text:
+        phase = "原始视觉锚点头固定验证"
+    elif VISUAL_ANCHOR_HEAD_RUN.name in command_text:
+        phase = "原始视觉锚点头训练"
+    elif step:
+        phase = "等待固定验证"
+    elif head_step >= head_expected and head_expected:
+        phase = "视觉锚点头完成 · 等待音频修正"
+    elif head_step:
+        phase = "视觉锚点头等待续训"
+    else:
+        phase = "等待启动"
+    head_eval_active = phase == "原始视觉锚点头固定验证"
+    if head_eval_active:
+        validation_processed = min(counts["head_v"], 1024)
+        validation_total = 1024
+    else:
+        validation_processed = sum(min(counts[key], 1024) for key in ("paired_v", "paired_va", "cyclic", "cross_r0"))
+        validation_total = 4096
+    display_step = step if step else head_step
+    display_expected = expected if step or expected else head_expected
+    display_latest = latest if step else head_latest
+    display_logs = logs if step else head_logs
+    train_fraction = min(display_step / display_expected, 1.0) if display_expected else 0.0
+    validation_fraction = validation_processed / validation_total
+    return {
+        "run": root.name,
+        "started": bool(step or head_step or commands or analysis),
+        "running": bool(commands),
+        "phase": phase,
+        "step": display_step,
+        "expected": display_expected,
+        "head_step": head_step,
+        "head_expected": head_expected,
+        "train_percent": 100 * train_fraction,
+        "counts": counts,
+        "validation_processed": validation_processed,
+        "validation_total": validation_total,
+        "mechanism_counts": mechanism_counts,
+        "mechanism_processed": mechanism_processed,
+        "mechanism_total": 768,
+        "mechanism": mechanism_analysis,
+        "overall_percent": 100 * (train_fraction + validation_fraction) / 2,
+        "latest": display_latest,
+        "seconds_per_step": mean(display_logs, "seconds"),
+        "seed_count": int((multiseed_analysis.get("protocol") or {}).get("seeds", 1)),
+        "utility": multiseed_result("paired_utility_over_vision") if multiseed_gates else result("paired_utility_over_vision"),
+        "cyclic_specificity": multiseed_result("paired_specificity_over_cyclic") if multiseed_gates else result("paired_specificity_over_cyclic"),
+        "cross_r0_specificity": multiseed_result("paired_specificity_over_cross_r0") if multiseed_gates else result("paired_specificity_over_cross_r0"),
+        "complete": bool(multiseed_gates or analysis),
+    }
 
 def build_progress():
     processes = process_state()
@@ -530,22 +799,151 @@ def build_progress():
     rateactive = rateactive_progress(processes)
     if rateactive["training_step"] or rateactive["evaluated"]:
         phases = [
-            {"name": "Rate约束残差训练", "state": "done" if rateactive["training_done"] else ("active" if rateactive["phase"] == "训练" else "pending")},
-            {"name": "五条件同模型评估", "state": "done" if rateactive["complete"] else ("active" if rateactive["phase"] == "评估" else "pending")},
-            {"name": "Rate有效性判断", "state": "done" if rateactive["complete"] else "pending"},
+            {"name": "正式全量训练", "state": "done" if rateactive["training_done"] else ("active" if rateactive["phase"] == "训练" else "pending")},
+            {"name": "全量五条件评估", "state": "done" if rateactive["complete"] else ("active" if rateactive["phase"] == "评估" else "pending")},
+            {"name": "正式配置结论", "state": "done" if rateactive["complete"] else "pending"},
             {"name": "预算/结构决策", "state": "pending"},
             {"name": "正式全量重训", "state": "pending"},
         ]
         if rateactive["running"]:
-            condition = next((x["label"] for x in rateactive["conditions"] if x["key"] == rateactive["current_condition"]), "—")
-            stage = "Rate约束残差筛选"
-            detail = f"{rateactive['phase']} · {condition} · 已完成{rateactive['evaluated']}/5条件"
+            stage = "正式全量训练与评估"
+            if rateactive["phase"] == "训练":
+                detail = (f"训练 {rateactive['training_step']:,}/{rateactive['training_expected']:,} "
+                          f"({rateactive['training_percent']:.1f}%) · EMA Rate {rateactive['ema_rate']}")
+            else:
+                condition = next((x["label"] for x in rateactive["conditions"] if x["key"] == rateactive["current_condition"]), "—")
+                detail = f"评估 · {condition} · 已完成{rateactive['evaluated']}/5条件"
         elif rateactive["complete"]:
-            stage = "Rate-active筛选评估完成"
+            stage = "正式全量评估完成"
             detail = "五条件已完成，等待Rate有效性与模态增益联合判断"
         elif rateactive["training_done"]:
-            stage = "Rate-active筛选等待评估"
-            detail = f"1,500步训练完成 · 已评估{rateactive['evaluated']}/5条件"
+            stage = "正式全量训练等待评估"
+            detail = f"{rateactive['training_expected']:,}步训练完成 · 已评估{rateactive['evaluated']}/5条件"
+
+    temporal = temporal_fixed_progress(processes)
+    display_epoch = int(latest.get("epoch", 0)) + 1 if latest else 0
+    display_target_epochs = target_epochs
+    display_batch = int(latest.get("batch", -1)) + 1 if latest else 0
+    display_batches = batches_per_epoch
+    display_percent = 100 * global_step / total_batches if total_batches else 0
+    display_eta = train_eta_seconds
+    if temporal["started"]:
+        stage = "修复后Qwen音频时间窗口审计"
+        detail = " · ".join(
+            f"S{x['stratum']} 正确{x['paired']}/{x['expected']} 错配{x['wrong']}/{x['expected']}"
+            for x in temporal["strata"]
+        )
+        phases = [
+            {"name": f"时间分层 S{x['stratum']}", "state": "done" if x["done"] else ("active" if x["paired"] or x["wrong"] or temporal["running"] else "pending")}
+            for x in temporal["strata"]
+        ] + [{"name": "编码器归因决策", "state": "done" if temporal["complete"] else "pending"}]
+        display_epoch, display_target_epochs = 1, 1
+        display_batch, display_batches = temporal["processed"], temporal["total"]
+        display_percent = temporal["percent"]
+        display_eta = None
+
+
+    attribution = qwen_attribution_progress(processes)
+    if attribution["started"]:
+        stage = "同协议编码器归因 · Qwen表征提取"
+        detail = " · ".join(
+            f"GPU{x['shard']} {x['completed']}/{x['expected']}"
+            for x in attribution["shards"]
+        ) + f" · 失败{attribution['failures']}"
+        phases = [
+            {"name": "Qwen三层表征提取", "state": "done" if attribution["complete"] else "active"},
+            {"name": "统一256维映射", "state": "pending"},
+            {"name": "共享任务头训练", "state": "pending"},
+            {"name": "正确/错配证据检验", "state": "pending"},
+            {"name": "编码器归因结论", "state": "pending"},
+        ]
+        display_epoch, display_target_epochs = 1, 1
+        display_batch, display_batches = attribution["processed"], attribution["total"]
+        display_percent, display_eta = attribution["percent"], None
+        if attribution["complete"]:
+            common = attribution.get("common_population") or 0
+            stage = "同协议编码器归因完成"
+            detail = f"共同有效样本{common} · Qwen基座有可用配对证据 · 主要失效点转向GeoCRD融合/瓶颈路径"
+            phases = [
+                {"name": "Qwen三层表征提取", "state": "done"},
+                {"name": "统一256维映射", "state": "done"},
+                {"name": "共享任务头训练", "state": "done"},
+                {"name": "正确/错配证据检验", "state": "done"},
+                {"name": "编码器归因结论", "state": "done"},
+            ]
+            display_batch = display_batches = common
+            display_percent = 100.0
+
+    query_commands = [
+        item["command"] for item in processes
+        if "geocrd_query_residual" in item["command"]
+    ]
+    query_runs = sorted(
+        RD_ROOT.glob("geocrd_query_residual*"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    if query_commands or query_runs:
+        query_root = query_runs[0]
+        query_config = read_json(query_root / "run_config.json", {}) or {}
+        query_rows = tail_jsonl(query_root / "train.jsonl", 300)
+        query_latest = query_rows[-1] if query_rows else {}
+        query_step = int(query_latest.get("global_step", 0) or 0)
+        query_total = int(query_config.get("max_steps", 0) or 0)
+        stage = "最终Query残差筛选" if query_commands else "最终Query残差筛选已暂停"
+        detail = (
+            f"{query_root.name} · {query_step}/{query_total or '完整epoch'}步 · "
+            f"batch {query_config.get('batch_size', '—')}/卡 · "
+            "保留Qwen原始token，仅向最终地理状态注入条件创新"
+        )
+        phases = [
+            {"name": "音频时长单位修复", "state": "done"},
+            {"name": "最终Query加性残差", "state": "done"},
+            {"name": "4卡吞吐筛选", "state": "active" if query_commands else "done"},
+            {"name": "正确/错配模态门槛", "state": "pending"},
+            {"name": "正式全量训练决策", "state": "pending"},
+        ]
+        query_eval_commands = [command for command in query_commands if "evaluate_geocrd_v2_classification.py" in command]
+        if query_eval_commands:
+            eval_root = query_root / "evaluation_val_selection_blur"
+            eval_counts = {name: line_count(eval_root / f"{name}.jsonl") for name in ("V", "VA", "VT", "VAT")}
+            query_step = sum(min(value, 1024) for value in eval_counts.values())
+            query_total = 4096
+            stage = "最终Query残差固定验证"
+            detail = "Blur-selection · " + " · ".join(f"{name} {value}/1024" for name, value in eval_counts.items())
+            phases[2] = {"name": "4卡吞吐筛选", "state": "done"}
+            phases[3] = {"name": "配对模态增益门槛", "state": "active"}
+        display_epoch, display_target_epochs = 1, 1
+        display_batch, display_batches = query_step, query_total
+        display_percent = 100 * query_step / query_total if query_total else 0
+        display_eta = None
+        latest, rows, config = query_latest, query_rows, query_config
+        global_step, total_batches = query_step, query_total
+        seconds_per_batch = mean(query_rows, "seconds")
+    visual_anchor = visual_anchor_progress(processes)
+    if visual_anchor["started"]:
+        stage = "视觉锚点保持的音频内容修正"
+        detail = (
+            f"{visual_anchor['phase']} · 训练 {visual_anchor['step']}/{visual_anchor['expected'] or '—'} · "
+            f"验证 {visual_anchor['validation_processed']}/{visual_anchor['validation_total']}"
+        )
+        phases = [
+            {"name": "视觉头冻结", "state": "done"},
+            {"name": "8窗音频内容修正", "state": "done" if visual_anchor["step"] >= visual_anchor["expected"] and visual_anchor["expected"] else ("active" if visual_anchor["running"] else "pending")},
+            {"name": "正确音频效用", "state": "done" if visual_anchor["complete"] else ("active" if visual_anchor["counts"]["paired_va"] else "pending")},
+            {"name": "循环错配特异性", "state": "done" if visual_anchor["complete"] else ("active" if visual_anchor["counts"]["cyclic"] else "pending")},
+            {"name": "跨r0错配特异性", "state": "done" if visual_anchor["complete"] else ("active" if visual_anchor["counts"]["cross_r0"] else "pending")},
+        ]
+        display_epoch, display_target_epochs = 1, 1
+        display_batch = visual_anchor["step"] if visual_anchor["validation_processed"] == 0 else visual_anchor["validation_processed"]
+        display_batches = visual_anchor["expected"] if visual_anchor["validation_processed"] == 0 else visual_anchor["validation_total"]
+        display_percent = visual_anchor["train_percent"] if visual_anchor["validation_processed"] == 0 else 100 * visual_anchor["validation_processed"] / visual_anchor["validation_total"]
+        display_eta = (visual_anchor["expected"] - visual_anchor["step"]) * visual_anchor["seconds_per_step"] if visual_anchor.get("seconds_per_step") and visual_anchor["expected"] else None
+        latest = visual_anchor["latest"] or latest
+        rows = tail_jsonl(VISUAL_ANCHOR_RUN / "train.jsonl", 300)
+        config = read_json(VISUAL_ANCHOR_RUN / "run_config.json", {}) or {}
+        global_step, total_batches = visual_anchor["step"], visual_anchor["expected"]
+        seconds_per_batch = visual_anchor.get("seconds_per_step")
 
     return {
         "updated_at": time.time(),
@@ -554,13 +952,13 @@ def build_progress():
         "stage_detail": detail,
         "phases": phases,
         "training": {
-            "epoch": int(latest.get("epoch", 0)) + 1 if latest else 0,
-            "target_epochs": target_epochs,
-            "batch": int(latest.get("batch", -1)) + 1 if latest else 0,
-            "batches_per_epoch": batches_per_epoch,
+            "epoch": display_epoch,
+            "target_epochs": display_target_epochs,
+            "batch": display_batch,
+            "batches_per_epoch": display_batches,
             "global_step": global_step,
             "total_batches": total_batches,
-            "percent": 100 * global_step / total_batches if total_batches else 0,
+            "percent": display_percent,
             "distortion": latest.get("distortion"),
             "normalized_nll": latest.get("normalized_nll", (latest.get("task_metrics") or {}).get("normalized_nll")),
             "normalized_energy": latest.get("normalized_energy", (latest.get("task_metrics") or {}).get("normalized_energy")),
@@ -573,7 +971,7 @@ def build_progress():
             "window_rate": mean(rows, "total_rate"),
             "window_utility_loss": mean(rows, "utility_loss"),
             "seconds_per_batch": seconds_per_batch,
-            "train_eta_seconds": train_eta_seconds,
+            "train_eta_seconds": display_eta,
             "coalition": latest.get("coalition"),
             "corruption": latest.get("corruption"),
         },
@@ -582,6 +980,9 @@ def build_progress():
         "ablations": ablations,
         "utility": utility,
         "rateactive": rateactive,
+        "temporal_fixed": temporal,
+        "qwen_attribution": attribution,
+        "visual_anchor": visual_anchor,
         "gpus": gpu_state(),
         "processes": processes,
     }
