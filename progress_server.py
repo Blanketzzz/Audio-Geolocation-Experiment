@@ -664,6 +664,7 @@ def visual_anchor_progress(processes):
         "seconds_per_step": mean(display_logs, "seconds"),
         "seed_count": int((multiseed_analysis.get("protocol") or {}).get("seeds", 1)),
         "utility": multiseed_result("paired_utility_over_vision") if multiseed_gates else result("paired_utility_over_vision"),
+        "global_specificity": multiseed_result("paired_specificity_over_global") if multiseed_gates else {"mean": None, "ci": None},
         "cyclic_specificity": multiseed_result("paired_specificity_over_cyclic") if multiseed_gates else result("paired_specificity_over_cyclic"),
         "cross_r0_specificity": multiseed_result("paired_specificity_over_cross_r0") if multiseed_gates else result("paired_specificity_over_cross_r0"),
         "complete": bool(multiseed_gates or analysis),

@@ -14,8 +14,18 @@
       "between_seed_sd": 0.0171160609188195,
       "positive_seeds": 3,
       "leave_one_seed_out_range": [-0.00009076253627426922, 0.01018567082064692],
-      "hierarchical_bootstrap_95ci": [-0.0022904806460428517, 0.022992101854615612],
-      "bootstrap_positive_probability": 0.82668
+      "hierarchical_bootstrap_95ci": [-0.0022662757178477473, 0.022949153825902614],
+      "bootstrap_positive_probability": 0.82846
+    },
+    "paired_specificity_over_global": {
+      "seed_means": [0.00839471403742209, 0.017714771383907646, 0.010951590316835791, 0.03188967518508434, 0.07941786845913157],
+      "mean_of_seed_means": 0.029673723876476286,
+      "median_seed_effect": 0.017714771383907646,
+      "between_seed_sd": 0.02926483149591558,
+      "positive_seeds": 5,
+      "leave_one_seed_out_range": [0.017237687730812468, 0.03499347633623984],
+      "hierarchical_bootstrap_95ci": [0.011266416495054728, 0.05597549833721132],
+      "bootstrap_positive_probability": 1.0
     },
     "paired_specificity_over_cyclic": {
       "seed_means": [0.001306061603827402, 0.0008784567180555314, 0.0009847652690950781, -0.00043983873911201954, 0.0018087193020619452],
@@ -24,8 +34,8 @@
       "between_seed_sd": 0.0008356408627785039,
       "positive_seeds": 4,
       "leave_one_seed_out_range": [0.000682361212966498, 0.0012445007232599892],
-      "hierarchical_bootstrap_95ci": [-0.00013817549304803828, 0.0018461765946995003],
-      "bootstrap_positive_probability": 0.95648
+      "hierarchical_bootstrap_95ci": [-0.00013953927948023192, 0.0018473034167254814],
+      "bootstrap_positive_probability": 0.95746
     },
     "paired_specificity_over_cross_r0": {
       "seed_means": [0.0013997984933666885, 0.0025088154361583292, 0.0011017649958375841, 0.0011030371679225937, 0.0013749269710388035],
@@ -34,8 +44,8 @@
       "between_seed_sd": 0.0005829956304505458,
       "positive_seeds": 5,
       "leave_one_seed_out_range": [0.0012448819070414174, 0.0015966445171216037],
-      "hierarchical_bootstrap_95ci": [0.000665638395366841, 0.002361687039519893],
-      "bootstrap_positive_probability": 0.99992
+      "hierarchical_bootstrap_95ci": [0.0006638960534473882, 0.002368902421803796],
+      "bootstrap_positive_probability": 0.9998
     }
   }
 }

@@ -1,0 +1,17 @@
+{
+  "definition": "oracle selects VA iff D(VA) < D(V) for each query",
+  "summary": {
+    "always_accept_gain": 0.00742652861517854,
+    "audio_help_fraction": 0.62578125,
+    "audio_harm_fraction": 0.37421875,
+    "oracle_accept_gain": 0.02064804403344169,
+    "avoidable_harm": 0.013221515418263153
+  },
+  "per_seed": [
+    {"seed": 42, "always_accept_gain": 0.00449516880325973, "audio_help_fraction": 0.6953125, "oracle_accept_gain": 0.01238082570489496},
+    {"seed": 43, "always_accept_gain": -0.0025811131054069847, "audio_help_fraction": 0.572265625, "oracle_accept_gain": 0.010717914847191423},
+    {"seed": 44, "always_accept_gain": -0.0036100402066949755, "audio_help_fraction": 0.4521484375, "oracle_accept_gain": 0.005388037272496149},
+    {"seed": 45, "always_accept_gain": 0.001332934363745153, "audio_help_fraction": 0.638671875, "oracle_accept_gain": 0.019120267184916884},
+    {"seed": 46, "always_accept_gain": 0.03749569322098978, "audio_help_fraction": 0.7705078125, "oracle_accept_gain": 0.05563317515770905}
+  ]
+}

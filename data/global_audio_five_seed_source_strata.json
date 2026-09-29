@@ -1,0 +1,17 @@
+{
+  "protocol": {
+    "seeds": 5,
+    "queries": 1024,
+    "global_donor_pool": 7551,
+    "cross_source_queries": 830,
+    "same_source_queries": 194,
+    "effect": "D(global mismatch) - D(paired); positive means paired is better"
+  },
+  "strata": {
+    "all": {"mean": 0.029673723876476286, "positive_seeds": 5, "ci95": [0.011291058997449, 0.05593533150677104]},
+    "same_source": {"mean": 0.0015660947438367865, "positive_seeds": 5, "ci95": [-0.00019577876731906952, 0.0034387477971229365]},
+    "cross_source": {"mean": 0.03624345887856311, "positive_seeds": 5, "ci95": [0.01373982440168599, 0.06831871816426158]},
+    "donor_inaturalist": {"mean": 0.00476254766058718, "positive_seeds": 5, "ci95": [0.0026422720765456177, 0.007406010942008257]},
+    "donor_soundingearth": {"mean": 0.07694253746975852, "positive_seeds": 5, "ci95": [0.02625556974080057, 0.15084639330924546]}
+  }
+}
