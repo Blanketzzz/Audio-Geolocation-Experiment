@@ -1889,7 +1889,7 @@ def build_progress():
             latest, rows = formal_summary, formal_train_rows
         elif formal_train_active:
             stage = "三任务全量 · 正式检索收敛训练"
-            detail = (f"epoch {train_epoch}/30 · 最少7轮 · stale {int(convergence_current.get('stale', 0) or 0)}/3 · "
+            detail = (f"epoch {train_epoch}/30上限 · stale {int(convergence_current.get('stale', 0) or 0)}/3 · "
                       f"best epoch {convergence_current.get('best_epoch', '—')} · step {train_step:,}")
             display_batch, display_batches = min(train_epoch, train_target), train_target
             display_percent = 100.0 * display_batch / display_batches
