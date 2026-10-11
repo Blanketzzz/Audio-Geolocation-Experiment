@@ -88,6 +88,8 @@ FORMAL_SIGNED_REGRESSION_ROOT = RD_ROOT / "exogenous_signed_utility_regression_f
 FORMAL_CLASSIFICATION_ROOT = RD_ROOT / "samplewise_safety_classification_full_seed42"
 FORMAL_REGRESSION_ROOT = RD_ROOT / "geocrd_v2_regression_full_seed42"
 FORMAL_REGRESSION_UPDATE_ROOT = RD_ROOT / "samplewise_safety_regression_full_seed42"
+SAMPLE4GEO_ADAPT_ROOT = RD_ROOT / "sample4geo_adapt_full_seed42"
+QWEN_RETRIEVAL_VISUAL_ROOT = RD_ROOT / "qwen_retrieval_visual_anchor_full_seed42"
 RISK_CALIBRATION_ROOT = RD_ROOT / "exogenous_signed_utility_regression_screen_seed43"
 ENCODER_ATTRIBUTION_ROOT = QWEN_ATTRIBUTION_ROOT.parent / "encoder_attribution"
 RATEACTIVE_CONDITIONS = (
@@ -163,10 +165,19 @@ def process_state():
             continue
         if not executable.startswith("python"):
             continue
+        if "--task gps_retrieval" in cmd:
+            matches.append({"pid": int(entry.name), "command": cmd.strip()})
+            continue
         if "extract_qwen_audio_attribution.py" in cmd:
             matches.append({"pid": int(entry.name), "command": cmd.strip()})
             continue
         if "analyze_nonlinear_compatibility_probe.py" in cmd:
+            matches.append({"pid": int(entry.name), "command": cmd.strip()})
+            continue
+        if "train_tiles_adapt.py" in cmd:
+            matches.append({"pid": int(entry.name), "command": cmd.strip()})
+            continue
+        if "qwen_retrieval_visual_anchor" in cmd or "qwen_retrieval_image_mean" in cmd:
             matches.append({"pid": int(entry.name), "command": cmd.strip()})
             continue
         if (
@@ -174,6 +185,10 @@ def process_state():
             or "train_online_safe_regression_screen.py" in cmd
             or "extract_retrieval_evidence_bank.py" in cmd
             or "train_safe_retrieval_update.py" in cmd
+            or "train_safe_retrieval_full.py" in cmd
+            or "analyze_retrieval_pair_compatibility.py" in cmd
+            or "merge_retrieval_condition_banks.py" in cmd
+            or "geocrd_retrieval_counterfactual" in cmd
         ):
             matches.append({"pid": int(entry.name), "command": cmd.strip()})
             continue
@@ -1916,6 +1931,380 @@ def build_progress():
         display_eta = None
 
 
+    sample4geo_progress = read_json(SAMPLE4GEO_ADAPT_ROOT / "progress.json", {}) or {}
+    sample4geo_summary = read_json(SAMPLE4GEO_ADAPT_ROOT / "summary.json", {}) or {}
+    sample4geo_active = any("train_tiles_adapt.py" in item["command"] for item in processes)
+    sample4geo_history = sample4geo_summary.get("history", [])
+    sample4geo_latest = sample4geo_history[-1] if sample4geo_history else {}
+    if sample4geo_active or sample4geo_progress:
+        sg_epoch = int(sample4geo_progress.get("epoch", 0) or 0)
+        sg_step = int(sample4geo_progress.get("step", 0) or 0)
+        sg_steps = int(sample4geo_progress.get("steps", 245) or 245)
+        sg_target = 12
+        validating = sample4geo_active and sg_step >= sg_steps and len(sample4geo_history) < sg_epoch
+        complete = sample4geo_progress.get("status") == "complete" and not sample4geo_active
+        if complete:
+            stage = "主流跨视角基线 · 域内适配完成"
+            detail = f"Sample4Geo · {len(sample4geo_history)}轮 · best clean R@1 {sample4geo_summary.get('best_clean_recall_at_1', 0):.4f}"
+        elif validating:
+            stage = "主流跨视角基线 · 完整验证"
+            detail = f"Sample4Geo epoch {sg_epoch}训练完成 · 正在检索7,551查询×7,551卫星图库"
+        else:
+            stage = "主流跨视角基线 · 域内适配训练"
+            detail = f"Sample4Geo epoch {sg_epoch}/{sg_target} · step {sg_step}/{sg_steps} · symmetric InfoNCE"
+        completed_fraction = max(0, sg_epoch - 1) + min(sg_step, sg_steps) / max(sg_steps, 1)
+        display_epoch, display_target_epochs = sg_epoch, sg_target
+        display_batch, display_batches = min(sg_step, sg_steps), sg_steps
+        global_step, total_batches = display_batch, display_batches
+        latest, rows = {}, []
+        display_percent = 100.0 * completed_fraction / sg_target
+        display_eta = None if validating else (
+            max(0, sg_steps - sg_step) * float(sample4geo_progress.get("elapsed_seconds", 0) or 0) / max(sg_step, 1)
+        )
+        phases = [
+            {"name": "官方权重零样本审计", "state": "done"},
+            {"name": "域内对称InfoNCE训练", "state": "done" if complete or validating else "active"},
+            {"name": "Clean完整图库验证", "state": "done" if sample4geo_latest else ("active" if validating else "pending")},
+            {"name": "Held-out 24px验证", "state": "done" if sample4geo_latest else "pending"},
+            {"name": "与Qwen检索器公平对比", "state": "done" if complete else "pending"},
+        ]
+
+    qwen_visual_active = any("qwen_retrieval_visual_anchor" in item["command"] for item in processes)
+    qwen_visual_eval_active = any(
+        ("evaluate_geocrd_v2_tasks.py" in item["command"]
+         or "evaluate_qwen_retrieval_ddp.py" in item["command"])
+        and "qwen_retrieval_visual_anchor_full_seed42" in item["command"]
+        for item in processes
+    )
+    qwen_eval_progress = read_json(
+        QWEN_RETRIEVAL_VISUAL_ROOT / "evaluation_retrieval_val_clean" / "evaluation_progress.json", {}
+    ) or {}
+    qwen_eval_finished = qwen_eval_progress.get("status") == "finished"
+    qwen_visual_rows = tail_jsonl(QWEN_RETRIEVAL_VISUAL_ROOT / "train.jsonl", 300)
+    if qwen_visual_active or qwen_eval_finished:
+        qv = qwen_visual_rows[-1] if qwen_visual_rows else {}
+        qv_step = int(qv.get("global_step", 0) or 0)
+        # 62,790 training pairs, split over four ranks, eight samples per rank.
+        qv_target = 1962
+        if qwen_visual_eval_active or qwen_eval_finished:
+            eval_phase = qwen_eval_progress.get("phase", "model")
+            eval_done = int(qwen_eval_progress.get("processed", 0) or 0)
+            eval_total = int(qwen_eval_progress.get("total", 7551) or 7551)
+            phase_label = {"model": "加载四个模型副本", "gallery": "卫星图库编码", "query": "街景查询编码", "complete": "完整排名计算完成"}.get(eval_phase, eval_phase)
+            stage = "Qwen主线 · 完整验证结果" if qwen_eval_finished else "Qwen主线 · 完整验证图库评估"
+            detail = f"{phase_label} · {eval_done:,}/{eval_total:,} · V-only Clean · 4-GPU replica DDP"
+            display_batch, display_batches = eval_done, eval_total
+            global_step, total_batches = display_batch, display_batches
+            display_percent = 100.0 * eval_done / max(eval_total, 1)
+        else:
+            stage = "Qwen主线 · 纯视觉跨视角检索全量训练"
+            detail = f"native head · V-only · Clean · global-32候选 · step {qv_step}/{qv_target} · 4-GPU replica DDP"
+            display_batch, display_batches = qv_step, qv_target
+            global_step, total_batches = display_batch, display_batches
+            display_percent = 100.0 * qv_step / qv_target
+        display_epoch, display_target_epochs = 1, 1
+        display_eta = None
+        latest, rows = qv, qwen_visual_rows
+        phases = [
+            {"name": "Sample4Geo强视觉基线", "state": "done"},
+            {"name": "Qwen四卡共享负候选测试", "state": "done"},
+            {"name": "Qwen完整62,790对训练", "state": "done" if qv_step >= qv_target else "active"},
+            {"name": "Clean完整图库验证", "state": "done" if qwen_eval_finished else ("active" if qwen_visual_eval_active else "pending")},
+            {"name": "音频文本条件更新", "state": "pending"},
+        ]
+
+    pooling_screen_root = RD_ROOT / "qwen_retrieval_image_mean_screen500_seed42"
+    pooling_screen_active = any(pooling_screen_root.name in item["command"] for item in processes)
+    pooling_train_active = any(
+        "train_geocrd_v2_classification.py" in item["command"]
+        and pooling_screen_root.name in item["command"] for item in processes
+    )
+    pooling_eval_active = any(
+        "evaluate_qwen_retrieval_ddp.py" in item["command"]
+        and pooling_screen_root.name in item["command"] for item in processes
+    )
+    pooling_eval_epoch2_active = any(
+        "evaluation_retrieval_val_clean_epoch2" in item["command"] for item in processes
+    )
+    pooling_eval_epoch3_active = any(
+        "evaluation_retrieval_val_clean_epoch3" in item["command"] for item in processes
+    )
+    pooling_eval_epoch4_active = any(
+        "evaluation_retrieval_val_clean_epoch4" in item["command"] for item in processes
+    )
+    pooling_eval_epoch5_active = any(
+        "evaluation_retrieval_val_clean_epoch5" in item["command"] for item in processes
+    )
+    if pooling_eval_epoch5_active or (pooling_screen_root / "evaluation_retrieval_val_clean_epoch5" / "summary.json").exists():
+        pooling_eval_dir = pooling_screen_root / "evaluation_retrieval_val_clean_epoch5"
+    elif pooling_eval_epoch4_active or (pooling_screen_root / "evaluation_retrieval_val_clean_epoch4" / "summary.json").exists():
+        pooling_eval_dir = pooling_screen_root / "evaluation_retrieval_val_clean_epoch4"
+    elif pooling_eval_epoch3_active or (pooling_screen_root / "evaluation_retrieval_val_clean_epoch3" / "summary.json").exists():
+        pooling_eval_dir = pooling_screen_root / "evaluation_retrieval_val_clean_epoch3"
+    elif pooling_eval_epoch2_active or (pooling_screen_root / "evaluation_retrieval_val_clean_epoch2" / "summary.json").exists():
+        pooling_eval_dir = pooling_screen_root / "evaluation_retrieval_val_clean_epoch2"
+    else:
+        pooling_eval_dir = pooling_screen_root / "evaluation_retrieval_val_clean"
+    pooling_eval_progress = read_json(pooling_eval_dir / "evaluation_progress.json", {}) or {}
+    pooling_eval_finished = pooling_eval_progress.get("status") == "finished"
+    pooling_config = read_json(pooling_screen_root / "run_config.json", {}) or {}
+    pooling_convergence = read_json(pooling_screen_root / "convergence_summary.json", {}) or {}
+    pooling_rows = tail_jsonl(pooling_screen_root / "train.jsonl", 300)
+    if pooling_screen_active or pooling_eval_finished:
+        current = pooling_rows[-1] if pooling_rows else {}
+        step = int(current.get("global_step", 0) or 0)
+        continuing_full = step >= 500 and pooling_train_active
+        target_epochs = int(pooling_config.get("epochs", 1) or 1)
+        target = 1962 * target_epochs if step >= 500 else 500
+        if pooling_eval_active or (pooling_eval_finished and not pooling_train_active):
+            eval_phase = pooling_eval_progress.get("phase", "model")
+            eval_done = int(pooling_eval_progress.get("processed", 0) or 0)
+            eval_total = int(pooling_eval_progress.get("total", 7551) or 7551)
+            phase_label = {"model": "加载四个模型副本", "gallery": "卫星图库编码", "query": "街景查询编码", "complete": "完整排名计算完成"}.get(eval_phase, eval_phase)
+            stage = ("Qwen检索主线 · 视觉token池化正式结果" if pooling_eval_finished
+                     else "Qwen检索主线 · 视觉token池化完整验证")
+            detail = f"{phase_label} · {eval_done:,}/{eval_total:,} · 4-GPU replica DDP"
+            if pooling_eval_finished and pooling_convergence.get("status") == "early_stopped":
+                best_epoch = int(pooling_convergence.get("best_epoch", 0) or 0)
+                stopping_epoch = int(pooling_convergence.get("stopping_epoch", 0) or 0)
+                stage = "Qwen检索主线 · 已收敛并早停"
+                detail = f"epoch {stopping_epoch}后早停 · 最佳checkpoint=epoch {best_epoch} · 7,551×7,551完整验证"
+            display_batch, display_batches = eval_done, eval_total
+            global_step, total_batches = display_batch, display_batches
+            display_percent = 100.0 * eval_done / max(eval_total, 1)
+        else:
+            stage = ("Qwen检索主线 · 视觉token池化全量续训" if continuing_full
+                     else "Qwen检索表征筛选 · 视觉token平均池化")
+            detail = f"global-32候选 · step {step}/{target} · 4-GPU replica DDP"
+            display_batch, display_batches = step, target
+            global_step, total_batches = step, target
+            display_percent = 100.0 * step / target
+        if step >= 500:
+            display_epoch = min(int(current.get("epoch", 0) or 0) + 1, target_epochs)
+            display_target_epochs = target_epochs
+        else:
+            display_epoch, display_target_epochs = 1, 1
+        display_eta = None
+        latest, rows = current, pooling_rows
+        phases = [
+            {"name": "最后token完整验证", "state": "done"},
+            {"name": "视觉token平均池化500步", "state": "done" if step >= 500 else "active"},
+            {"name": "固定1000样本验证", "state": "done" if step >= 500 else "pending"},
+            {"name": "全量第一轮续训", "state": "done" if step >= 1962 else ("active" if continuing_full else "pending")},
+            {"name": "收敛训练", "state": "active" if pooling_train_active and step >= 1962 else ("done" if step >= target else "pending")},
+            {"name": "7,551完整图库验证", "state": "done" if pooling_eval_finished and not pooling_train_active else ("active" if pooling_eval_active else "pending")},
+            {"name": "接入音频文本条件证据", "state": "pending"},
+        ]
+
+    # The shared trainer keeps a historical classification filename, but
+    # --task retrieval selects the retrieval path. Active retrieval gets
+    # final display priority over completed visual-head experiments.
+    retrieval_condition_runs = (
+        RD_ROOT / "geocrd_crossview_retrieval_formal_seed42",
+        RD_ROOT / "geocrd_retrieval_counterfactual_warm025_screen_seed42",
+        RD_ROOT / "geocrd_retrieval_counterfactual_global_sync_screen_seed42",
+        RD_ROOT / "geocrd_retrieval_core_screen_seed42",
+    )
+    active_retrieval_root = next(
+        (root for root in retrieval_condition_runs if root.name in command_text), None
+    )
+    available_retrieval_roots = [
+        root for root in retrieval_condition_runs if (root / "train.jsonl").exists()
+    ]
+    display_retrieval_root = active_retrieval_root or max(
+        available_retrieval_roots, key=lambda root: (root / "train.jsonl").stat().st_mtime
+    )
+    if display_retrieval_root is not None:
+        retrieval_config = read_json(display_retrieval_root / "run_config.json", {}) or {}
+        retrieval_rows = tail_jsonl(display_retrieval_root / "train.jsonl", 300)
+        retrieval_latest = retrieval_rows[-1] if retrieval_rows else {}
+        retrieval_step = int(retrieval_latest.get("global_step", 0) or 0)
+        retrieval_target = int(retrieval_config.get("max_steps", 0) or 0)
+        if retrieval_target <= 0:
+            retrieval_samples = int(retrieval_config.get("train_samples", 62790) or 62790)
+            retrieval_batch = int(retrieval_config.get("batch_size", 4) or 4)
+            retrieval_epochs = int(retrieval_config.get("epochs", 1) or 1)
+            retrieval_target = retrieval_epochs * math.ceil(retrieval_samples / max(1, 4 * retrieval_batch))
+        utility_weight = float(retrieval_config.get("utility_weight", 0.0) or 0.0)
+        retrieval_finished = active_retrieval_root is None and retrieval_step >= retrieval_target
+        retrieval_bank_done = (RD_ROOT / "geocrd_retrieval_counterfactual_warm025_bank512_seed42" / "val.pt").exists()
+        stage = ("核心方法检索 · 跨视角正式全量训练" if active_retrieval_root is not None else
+                 "跨视角补充检索 · 独立验证完成" if retrieval_bank_done else
+                 "核心方法检索 · 等待独立验证" if retrieval_finished else
+                 "核心方法检索 · 跨视角条件证据训练")
+        detail = (
+            f"Street→Satellite · task=retrieval · step {retrieval_step}/{retrieval_target} · "
+            f"GeoCRD热启动 · 反事实权重 {utility_weight:g} · 4-GPU"
+        )
+        display_epoch, display_target_epochs = 1, 1
+        display_batch, display_batches = retrieval_step, retrieval_target
+        global_step, total_batches = display_batch, display_batches
+        display_percent = 100.0 * retrieval_step / max(retrieval_target, 1)
+        seconds_per_batch = mean(retrieval_rows, "seconds") or 0.0
+        display_eta = max(0, retrieval_target - retrieval_step) * seconds_per_batch
+        latest, rows, config = retrieval_latest, retrieval_rows, retrieval_config
+        phases = [
+            {"name": "分类主线", "state": "done"},
+            {"name": "回归主线", "state": "done"},
+            {"name": "跨视角检索视觉锚点", "state": "done"},
+            {"name": "跨视角检索条件证据训练", "state": "done" if retrieval_finished else "active"},
+            {"name": "独立图库配对/错配验证", "state": "done" if retrieval_bank_done else ("active" if retrieval_finished else "pending")},
+            {"name": "GPS坐标检索", "state": "done"},
+        ]
+
+    # GPS-coordinate retrieval is the primary retrieval task. It must override
+    # both historical classification labels and the supplementary cross-view
+    # status whenever a GPS run exists.
+    gps_process = next(
+        (item for item in processes if "--task gps_retrieval" in item["command"]),
+        None,
+    )
+    gps_roots = [
+        root for root in RD_ROOT.glob("geocrd_gps_retrieval*")
+        if (root / "train.jsonl").exists()
+    ]
+    gps_root = None
+    if gps_process is not None and "--output " in gps_process["command"]:
+        output_token = gps_process["command"].split("--output ", 1)[1].split()[0]
+        candidate = Path(output_token)
+        gps_root = candidate if candidate.is_absolute() else EXP_ROOT / candidate
+    elif gps_roots:
+        gps_root = max(gps_roots, key=lambda root: (root / "train.jsonl").stat().st_mtime)
+    if gps_root is not None and active_retrieval_root is None:
+        gps_config = read_json(gps_root / "run_config.json", {}) or {}
+        gps_rows = tail_jsonl(gps_root / "train.jsonl", 500)
+        gps_latest = gps_rows[-1] if gps_rows else {}
+        gps_step = int(gps_latest.get("global_step", 0) or 0)
+        gps_target = int(gps_config.get("max_steps", 0) or 0)
+        if gps_target <= 0:
+            samples = int(gps_config.get("train_samples", 62790) or 62790)
+            batch = int(gps_config.get("batch_size", 4) or 4)
+            epochs = int(gps_config.get("epochs", 1) or 1)
+            gps_target = epochs * math.ceil(samples / max(1, 4 * batch))
+        gps_smoke = "smoke" in gps_root.name
+        gps_running = gps_process is not None
+        stage = (
+            "GPS坐标检索 · 四卡烟雾测试" if gps_running and gps_smoke else
+            "GPS坐标检索 · 正式训练" if gps_running else
+            "GPS坐标检索 · 烟雾测试完成" if gps_smoke else
+            "GPS坐标检索 · 训练完成待独立验证"
+        )
+        detail = (
+            f"Multimodal query→GPS candidates · step {gps_step}/{gps_target} · "
+            f"GeoCRD条件证据 · 无卫星候选 · 4-GPU"
+        )
+        display_epoch, display_target_epochs = 1, 1
+        display_batch, display_batches = gps_step, max(gps_target, 1)
+        global_step, total_batches = display_batch, display_batches
+        display_percent = 100.0 * display_batch / display_batches
+        seconds_per_batch = mean(gps_rows, "seconds") or 0.0
+        display_eta = max(0, gps_target - gps_step) * seconds_per_batch if gps_running else None
+        latest, rows, config = gps_latest, gps_rows, gps_config
+        phases = [
+            {"name": "GPS任务头与距离目标", "state": "done"},
+            {"name": "四卡烟雾测试", "state": "active" if gps_running and gps_smoke else "done"},
+            {"name": "GPS正式收敛训练", "state": "active" if gps_running and not gps_smoke else "pending"},
+            {"name": "7,551坐标候选完整验证", "state": "pending"},
+            {"name": "正确/错配音频文本验证", "state": "pending"},
+        ]
+
+    gps_eval_process = next(
+        (item for item in processes
+         if "evaluate_geocrd_v2_tasks.py" in item["command"]
+         and "--task gps_retrieval" in item["command"]),
+        None,
+    )
+    if gps_root is not None and active_retrieval_root is None:
+        gps_eval_dir = gps_root / "evaluation_gps_retrieval_val_clean"
+        gps_eval_progress = read_json(gps_eval_dir / "evaluation_progress.json", {}) or {}
+        gps_summary_ready = (gps_eval_dir / "summary.json").exists()
+        gps_coalitions = ("V", "VA", "VT", "VAT")
+        gps_completed = sum((gps_eval_dir / f"{name}.jsonl").exists() for name in gps_coalitions)
+        if gps_eval_process is not None or gps_summary_ready:
+            eval_phase = gps_eval_progress.get("phase", "query")
+            eval_done = int(gps_eval_progress.get("processed", 0) or 0)
+            eval_total = int(gps_eval_progress.get("total", 7551) or 7551)
+            current_coalition = gps_eval_progress.get("coalition")
+            if not current_coalition and gps_eval_process is not None:
+                current_coalition = next((name for name in gps_coalitions if not (gps_eval_dir / f"{name}.jsonl").exists()), "VAT")
+            if gps_summary_ready:
+                stage = "GPS坐标检索 · 正式验证完成"
+                detail = "V / V+A / V+T / V+A+T 全部完成 · 7,551 GPS候选"
+                display_batch, display_batches, display_percent = 4, 4, 100.0
+            elif gps_eval_progress:
+                phase_label = {"model": "加载模型", "gallery": "编码GPS候选", "query": "编码多模态查询", "complete": "完整排名完成"}.get(eval_phase, eval_phase)
+                stage = "GPS坐标检索 · 7,551候选全量验证"
+                detail = f"{phase_label} · {current_coalition or "-"} · {eval_done:,}/{eval_total:,} · 已完成{gps_completed}/4组合"
+                display_batch = gps_completed * eval_total + eval_done
+                display_batches = 4 * eval_total
+                display_percent = 100.0 * display_batch / max(display_batches, 1)
+            else:
+                stage = "GPS坐标检索 · 7,551候选全量验证"
+                detail = f"{current_coalition or "-"} 正在评估 · 已完成{gps_completed}/4组合 · 下一组合启用逐批实时进度"
+                display_batch, display_batches = gps_completed, 4
+                display_percent = 100.0 * gps_completed / 4
+            global_step, total_batches = display_batch, display_batches
+            display_epoch, display_target_epochs = 1, 1
+            display_eta = None
+            phases = [
+                {"name": "GPS任务头与距离目标", "state": "done"},
+                {"name": "GPS正式收敛训练", "state": "done"},
+                {"name": "V / V+A / V+T / V+A+T全量验证", "state": "done" if gps_summary_ready else "active"},
+                {"name": "正确/错配音频文本验证", "state": "pending"},
+            ]
+
+    if gps_eval_process is not None and "--output " in gps_eval_process["command"]:
+        control_token = gps_eval_process["command"].split("--output ", 1)[1].split()[0]
+        control_dir = Path(control_token)
+        if not control_dir.is_absolute():
+            control_dir = EXP_ROOT / control_dir
+        if control_dir.name.startswith("evidence_controls_gps_"):
+            control_progress = read_json(control_dir / "evaluation_progress.json", {}) or {}
+            control_done = int(control_progress.get("processed", 0) or 0)
+            control_total = int(control_progress.get("total", 1024) or 1024)
+            control_coalition = control_progress.get("coalition") or "-"
+            control_kind = ("错配音频" if "audio_wrong" in control_dir.name else ("错配文本" if "text_wrong" in control_dir.name else ("Held-out遮挡正确配对" if "paired_occlusion" in control_dir.name else "错配证据")))
+            stage = f"GPS坐标检索 · {control_kind}因果对照"
+            detail = f"{control_coalition} · {control_done:,}/{control_total:,}查询 · 候选库仍为7,551 GPS坐标"
+            display_batch, display_batches = control_done, max(control_total, 1)
+            global_step, total_batches = display_batch, display_batches
+            display_percent = 100.0 * display_batch / display_batches
+            display_epoch, display_target_epochs = 1, 1
+            display_eta = None
+            phases = [
+                {"name": "GPS四组合全量验证", "state": "done"},
+                {"name": "同来源跨区域错配音频", "state": "active" if control_kind == "错配音频" else "pending"},
+                {"name": "同来源跨区域错配文本", "state": "active" if control_kind == "错配文本" else "pending"},
+                {"name": "成对因果增益分析", "state": "pending"},
+            ]
+
+    gps_occlusion_dirs = [
+        gps_root / "evidence_controls_gps_paired_occlusion035_1024_seed42" if gps_root else None,
+        gps_root / "evidence_controls_gps_audio_wrong_occlusion035_1024_seed42" if gps_root else None,
+        gps_root / "evidence_controls_gps_text_wrong_occlusion035_1024_seed42" if gps_root else None,
+    ]
+    gps_occlusion_complete = all(path is not None and (path / "summary.json").exists() for path in gps_occlusion_dirs)
+    gps_occlusion_analysis = read_json(gps_root / "gps_pair_specificity_occlusion035_seed42.json", {}) if gps_root else {}
+    if active_retrieval_root is None and gps_eval_process is None and gps_occlusion_complete and gps_occlusion_analysis:
+        audio_spec = gps_occlusion_analysis.get("audio", {}).get("paired_specificity_distortion", {})
+        text_spec = gps_occlusion_analysis.get("text", {}).get("paired_specificity_distortion", {})
+        audio_mean = float(audio_spec.get("mean", 0) or 0)
+        text_mean = float(text_spec.get("mean", 0) or 0)
+        stage = "GPS坐标检索 · Held-out遮挡因果对照完成"
+        detail = f"音频配对特异性 {audio_mean:+.4f} · 文本 {text_mean:+.4f} · 1,024查询 × 7,551坐标"
+        display_batch, display_batches, display_percent = 1024, 1024, 100.0
+        global_step, total_batches = display_batch, display_batches
+        display_epoch, display_target_epochs = 1, 1
+        display_eta = None
+        phases = [
+            {"name": "GPS四组合全量验证", "state": "done"},
+            {"name": "Clean正确/错配音频文本", "state": "done"},
+            {"name": "Held-out遮挡正确配对", "state": "done"},
+            {"name": "Held-out遮挡错配音频", "state": "done"},
+            {"name": "Held-out遮挡错配文本", "state": "done"},
+            {"name": "成对Bootstrap因果分析", "state": "done"},
+        ]
+
     return {
         "updated_at": time.time(),
         "running": bool(processes),
@@ -1954,6 +2343,16 @@ def build_progress():
         "temporal_fixed": temporal,
         "qwen_attribution": attribution,
         "visual_anchor": visual_anchor,
+        "sample4geo": {
+            "active": sample4geo_active,
+            "status": sample4geo_progress.get("status", "waiting"),
+            "epoch": sample4geo_progress.get("epoch"),
+            "step": sample4geo_progress.get("step", 0),
+            "steps": sample4geo_progress.get("steps", 245),
+            "loss": sample4geo_progress.get("loss"),
+            "best_clean_recall_at_1": sample4geo_summary.get("best_clean_recall_at_1"),
+            "latest": sample4geo_latest,
+        },
         "gpus": gpu_state(),
         "processes": processes,
     }
