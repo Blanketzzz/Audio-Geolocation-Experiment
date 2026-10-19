@@ -3696,13 +3696,13 @@
     },
     {
       "id": "source-matched-cross-r0-counterfactual",
-      "date": "2026-10-11",
-      "timestamp": "2026-10-11T00:00:00Z",
+      "date": "2026-10-19",
+      "timestamp": "2026-10-19T07:20:00Z",
       "category": "阶段审计",
-      "status": "分类/回归/GPS主实验完成 · 最终跨视角方法全量训练中",
-      "title": "从错配反事实到三任务闭环：当前证据、缺口与唯一下一步",
+      "status": "历史总审计 · Qwen/GeoCRD未形成最终方法 · PE-AV概率混合核心筛查通过",
+      "title": "从Qwen-GeoCRD到PE-AV共享地理更新：完整成功、失败与转向记录",
       "question": "当地理定位中的视觉证据退化或失效时，正确配对的音频与文本是否提供视觉内部恢复、鲁棒训练或蒸馏无法替代的样本特定地理证据；模型能否在分类、连续坐标回归、GPS坐标检索与跨视角检索中选择性接纳有益证据，同时抑制错配或有害证据？",
-      "headline": "重新审计确认：分类并非未完成。正式分类主模型训练7,850步，并在clean、blur、dark、low-resolution、held-out occlusion五个全量条件中使音频/文本安全门全部通过；此前overall=false来自另一条3,925步条件版本的文本错配门，属于失败诊断分支，不能覆盖正式主结果。回归正式signed-utility/worst-source-risk模型在6,416条严格闭合验证样本及四个命名条件上也全部通过；GPS坐标检索已完成全量。当前唯一未闭环的是最终GeoCRD跨视角检索，已于本次审计后启动62,790样本、3,925步的一轮全量训练，随后按全图库验证决定是否续训。",
+      "headline": "截至10月19日，研究问题仍成立，但最终方法尚未冻结。Qwen-GeoCRD在分类、回归和GPS检索中得到过同模型内部正向结果，却没有转化为相对强外部地理定位方法的稳定优势；跨视角训练还发现16个批内候选与7,551图库候选不一致。Rate与地理失真只在旧版本内部部分生效，不能再写成已证实的最终增益来源。后续候选token路线在NLL与配对特异性上成立，但Top-1和距离增益很小。最新编码器归因确认官方PE-AV音频具有显著距离证据；全PE-AV普通MAF、Geo-MAF和候选分数GeoDiT均失败，而球面切平面共享Transformer能大幅改善粗距离、却破坏200 km精度。显式保留视觉原假设的概率混合在两个种子上初步通过：200 km准确率只下降0.20–0.30pp，同时平均距离改善406–996 km且正确配对显著优于错配。",
       "protocol": [
         "分类：62,790训练样本，7,850步正式训练，7,548条验证，五视觉条件",
         "回归：62,790训练样本，3,925步，6,416条严格闭合验证样本，四命名条件",
@@ -3721,26 +3721,26 @@
           [
             "地理分类",
             "7,850步全量训练；clean/blur/dark/lowres/held-out occlusion全量评估",
-            "正式内部主实验完成；五条件A/T门全部通过",
-            "主流分类基线与关键多种子"
+            "内部机制结果完成；不是最终方法结论",
+            "强PIGEON-style视觉基线更好；需更换视觉锚点/方法定义"
           ],
           [
             "连续坐标回归",
             "3,925步全量训练；6,416条严格闭合样本；四条件A/T门全部通过",
-            "正式内部主实验完成",
-            "主流回归基线与关键多种子"
+            "内部正向但只验证旧GeoCRD版本",
+            "训练充分性、强回归基线和统一最终方法"
           ],
           [
             "GPS坐标检索",
             "最终统一方法、全量clean、clean与held-out遮挡反事实",
-            "正式内部主实验完成",
-            "主流GPS检索基线与多种子"
+            "内部正向但精确检索很弱",
+            "GeoCLIP同图库更强；需统一大候选训练"
           ],
           [
             "跨视角检索",
-            "Sample4Geo强基线已完成；最终GeoCRD全量训练已启动",
-            "正式主实验进行中",
-            "完成3,925步后做7,551×7,551全图库与paired/wrong验证"
+            "旧GeoCRD训练已停止；发现每查询仅16个批内候选",
+            "旧结果仅作诊断，不是正式主实验",
+            "使用大候选库且冻结新方法后重新训练"
           ]
         ]
       },
@@ -4037,6 +4037,60 @@
               "先完成最终GeoCRD跨视角版"
             ]
           ]
+        },
+        {
+          "title": "10月12–18日方法审计：Qwen/GeoCRD为什么不能直接成为最终方法",
+          "headers": ["环节", "实际结果", "结论", "后续处理"],
+          "rows": [
+            ["条件Rate", "旧Hybrid中预算多次不绑定，EMA Rate低于预算且拉格朗日乘子β归零", "Rate被计算不等于Rate产生增益", "保留为受控消融，不再作为已成立主贡献"],
+            ["地理失真", "内部分类/回归能改善概率地理风险，但没有稳定转化为强外部精度优势", "可作为训练与评价辅助项，不能单独支撑方法", "只在统一最终架构中重新验证"],
+            ["样本级安全接纳", "显著减少错配伤害，但可靠性权重一度降至音频0.95%、文本1.12%", "安全性过强会退化为几乎拒绝辅助证据", "需要把保留视觉建模成概率假设，而非额外硬门"],
+            ["分类", "正式Qwen-GeoCRD内部五条件正向；但PIGEON-style mixed/exposure-matched整体更强", "证明条件辅助证据存在，不证明分类竞争力", "不再把内部门通过写成最终完成"],
+            ["回归", "6,416条闭合集上音频/文本平均距离内部正向；训练充分性与强外部基线未闭合", "旧版本内部证据", "等待统一新方法，不重复旧GeoCRD全量"],
+            ["GPS检索", "GeoCRD clean R@1约0.78–0.99%；官方GeoCLIP同7,551坐标库R@1=3.76%", "GeoCRD擅长粗距离而非精确候选排序", "必须采用全/大候选训练"],
+            ["跨视角检索", "Qwen视觉R@1约4.38%，Sample4Geo适配基线23.57%；旧训练每查询仅16个批内负候选", "旧全量指遍历全数据，不等于全候选监督", "旧epoch1–3仅保留为失败诊断"]
+          ]
+        },
+        {
+          "title": "10月18日候选token与条件证据比：局部成立但不足以支撑全量",
+          "headers": ["验证", "Accuracy/Top-1", "地理距离", "配对特异性", "决定"],
+          "rows": [
+            ["显式候选token，2,997开发集三种子", "宏观变化−0.041 pp", "+10.55 km，95% CI [+0.29,+26.74]", "NLL优势+0.00824", "能学候选特异证据，但精度不足"],
+            ["未触碰512 holdout", "+0.352 pp，95% CI跨0", "+7.40 km，95% CI跨0", "NLL与正确/错配优势显著；距离特异性+18.92 km", "只支持机制，不支持最终效果"],
+            ["DINOv3+Qwen条件证据比", "0.000 pp", "−6.85 km", "NLL仅+0.00122", "失败"],
+            ["DINOv3+Qwen GeoCRD", "−0.122 pp", "−8.82 km", "NLL仅+0.00125", "GeoCRD没有挽救该表征"],
+            ["Qwen全量token缓存", "rank0 17.79% / rank1 21.25%时停止", "—", "—", "方法切换后停止，避免继续消耗算力"]
+          ]
+        },
+        {
+          "title": "10月19日编码器归因：辅助模态无用，还是Qwen音频表示不合适？",
+          "headers": ["音频表示", "三种子平均距离改善", "95% CI", "正确配对相对错配", "结论"],
+          "rows": [
+            ["Qwen音频 + DINOv3视觉", "+37.61 km", "[-14.50,+92.35]", "+21.41 km，区间跨0", "有趋势但不稳定"],
+            ["官方PE-AV Large音频 + DINOv3视觉", "+53.59 km", "[+13.48,+94.80]", "+61.40 km，95% CI [+30.70,+95.01]", "稳定正向；说明音频地理证据存在，瓶颈在表示和融合"],
+            ["旧PE-AV缓存审计", "音频向量全部相同", "无效", "无效", "旧稀疏音频结论作废；已替换为官方8窗口×10秒缓存"]
+          ]
+        },
+        {
+          "title": "10月19日全PE-AV共享交互与AudioX/DiT借鉴快速筛查",
+          "headers": ["方法", "Top-1变化", "平均距离变化", "正确配对相对错配", "判断"],
+          "rows": [
+            ["普通MAF", "+1.118 pp", "恶化237.50 km", "距离+27.72 km", "提升排序但破坏地理距离，停止"],
+            ["候选感知Geo-MAF", "+1.118 pp", "恶化107.74 km", "距离+59.76 km", "较MAF好但仍不成立"],
+            ["候选分数GeoDiT", "−2.439 pp", "恶化159.21 km", "距离−10.76 km", "扩散对象错误，停止"],
+            ["球面切平面共享Transformer", "≤200 km从23.88%降至3.86%", "改善831.56 km", "距离+2440.78 km", "学到强粗粒度修正，但无条件改写可靠视觉"],
+            ["球面切平面DiT", "≤200 km降至4.37%", "恶化576.75 km", "距离+789.00 km", "DiT本身没有解决选择性接纳，停止作为主线"]
+          ]
+        },
+        {
+          "title": "当前冻结前的唯一核心验证",
+          "headers": ["保留什么", "舍弃什么", "当前模型", "通过门槛"],
+          "rows": [
+            ["方法定义", "保留PE-AV正确音频证据、共享token交互与正确/错配反事实", "p(y|V,Z)=(1−g)pV+g pC；g是保留视觉或接受修正的样本概率", "舍弃候选分数扩散、无条件残差、把非绑定Rate写成贡献"],
+            ["seed 42验证选择", "阈值0.4", "平均距离改善406.13 km；配对特异性559.26 km", "≤200 km：23.88%→23.68%，−0.20pp"],
+            ["seed 43验证选择", "阈值0.3", "平均距离改善996.13 km；配对特异性1897.90 km", "≤200 km：23.88%→23.58%，−0.30pp"],
+            ["当前判断", "两个种子均通过快速核心门槛", "概率保留视觉比无条件共享Transformer显著更安全", "阈值0.3/0.4尚不稳定；需第三种子和不依赖硬阈值的校准后再全量"]
+          ]
         }
       ],
       "calculation": [
@@ -4045,19 +4099,23 @@
         "GPS检索以真实GPS坐标作为候选库，报告R@K、排名和Top-1球面距离；它不是跨视角卫星图像检索。跨视角检索以卫星影像作为gallery，必须单独报告。",
         "Held-out Occlusion 0.35未用于训练时退化选择，用于检验条件地理证据是否能迁移到未参与选择的视觉失效机制。",
         "分类/回归的overall gate为false，不等价于任务失败：音频门通过，但文本错配安全性尚未达到预设门槛。因此这里只能称为全量内部结果，不能称为论文最终结论。",
-        "overall=false追溯：3,925步safe_conditional分类分支要求wrong_distortion≤visual_distortion+0.01；文本为0.9809，而视觉为0.9103，因此失败。正式7,850步safe_evidence主模型中，五个条件的音频与文本门均为true，故无需因该诊断分支重训分类。"
+        "overall=false追溯：3,925步safe_conditional分类分支要求wrong_distortion≤visual_distortion+0.01；文本为0.9809，而视觉为0.9103，因此失败。7,850步safe_evidence版本内部五条件门通过，但它不是相对外部强基线成立的最终方法。",
+        "PE-AV三种子归因使用同一DINOv3视觉锚点、同一测试样本与相同训练/验证选择；报告的是Haversine球面距离改善及成对bootstrap区间，不用跨模型未校准NLL得出结论。",
+        "全PE-AV筛查的V/P/W分别是视觉原预测、正确配对音频文本修正、来源约束错配修正；距离改善定义为mean_km(V)−mean_km(P)，配对特异性定义为mean_km(W)−mean_km(P)，均为正才符合预期。"
       ],
       "findings": [
-        "正式分类主模型已经完成全量训练和五条件验证；此前网页把后续失败诊断分支误当成主结果，现已纠正。",
-        "正式回归主模型在严格闭合样本上完成全量训练与四条件评估，音频和文本均保持正向距离改善及错配安全门通过。",
-        "GPS坐标检索全量与clean/held-out因果对照已经完成；视觉受损时音频配对特异性增强仍是目前最清楚的机制证据。",
-        "最终GeoCRD跨视角检索是当前唯一尚未完成的主线实验；完成后立即进入主流地理定位方法比较。"
+        "科学问题仍有数据支持：正确配对辅助模态在视觉退化条件下能够提供样本特定地理信息，官方PE-AV音频的三种子距离证据目前最可靠。",
+        "旧Qwen-GeoCRD的分类、回归和GPS结果只能证明内部条件增量效用；强外部视觉分类、GPS检索和跨视角方法暴露出明显竞争力差距。",
+        "Rate、地理失真和样本安全不是全部无效：它们分别提供信息预算、空间风险和错配保护，但尚未在统一强锚点协议下证明是最终精度增益来源。",
+        "普通MAF、Geo-MAF及两种GeoDiT实现均未通过核心门槛；共享Transformer能学到正确配对的粗地理方向，但必须显式保留可靠视觉假设。",
+        "下一步不是重跑旧三任务或继续堆损失，而是验证一个最小概率混合：视觉后验与多模态修正后验按样本接纳概率组合。"
       ],
       "limits": [
-        "分类与回归正式主结果目前仍以seed 42为主；论文最终统计需要只对关键配置补多随机种子，而非重跑全部探索分支。",
-        "分类3,925步safe_conditional分支的文本门失败是真实的失败诊断，但不应覆盖7,850步正式主模型；论文中必须明确区分版本。",
-        "GPS检索的R@1仍低，必须与专门GPS检索方法比较。",
-        "跨视角最终GeoCRD正在训练，当前不能用旧版安全融合或screen结果代替最终方法结论。"
+        "当前PE-AV共享交互只在3,000条严格对齐样本上筛查，不能当作全量论文结果。",
+        "球面切平面确定性修正的平均距离改善伴随≤200 km准确率严重下降，因此不能只报告均值距离。",
+        "概率混合在两个种子上同时满足距离、尺度准确率和错配特异性快速门槛，但阈值由验证集分别选为0.4与0.3，仍需第三种子及连续校准验证。",
+        "分类、回归、GPS与跨视角的旧结果来自不同方法版本；最终论文必须在冻结的新方法下统一重做，而不能拼接成跨任务通用性结论。",
+        "外部基线比较仍是最终必需环节，但只能在方法冻结后进行；当前不再用内部正向结果代替竞争力。"
       ],
       "files": [
         "experiments/pid_omni/runs/safe_conditional_classification_full_seed42/summary.json",
@@ -4067,7 +4125,18 @@
         "experiments/pid_omni/runs/geocrd_gps_retrieval_formal_seed42/gps_pair_specificity_seed42.json",
         "experiments/pid_omni/runs/geocrd_gps_retrieval_formal_seed42/gps_pair_specificity_occlusion035_seed42.json",
         "experiments/pid_omni/runs/sample4geo_adapt_full_seed42/summary.json",
-        "experiments/pid_omni/runs/safe_retrieval_formal_full_seed42/summary.json"
+        "experiments/pid_omni/runs/safe_retrieval_formal_full_seed42/summary.json",
+        "experiments/pid_omni/CANDIDATE_TOKEN_MAINLINE_STATE.json",
+        "experiments/pid_omni/runs/conditional_ratio_dinov3_qwen2997_seed42/summary.json",
+        "experiments/pid_omni/runs/conditional_ratio_geocrd_dinov3_qwen2997_seed42/summary.json",
+        "experiments/pid_omni/runs/aux_ceiling_peav_official_k8t10_dinov3_seed42/summary.json",
+        "experiments/pid_omni/runs/peav_geomaf_screen/geomaf_full/summary.json",
+        "experiments/pid_omni/runs/peav_geomaf_screen/geodit_full/summary.json",
+        "experiments/pid_omni/runs/peav_tangent_screen/direct/summary.json",
+        "experiments/pid_omni/runs/peav_tangent_screen/dit/summary.json",
+        "experiments/pid_omni/runs/peav_tangent_screen/mixture_calibrated_seed42/summary.json",
+        "experiments/pid_omni/runs/peav_tangent_screen/mixture_calibrated_seed43/summary.json",
+        "experiments/pid_omni/CURRENT_METHOD_STATE_2026-10-19.json"
       ]
     }
   ]
